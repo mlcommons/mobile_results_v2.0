@@ -1,0 +1,170 @@
+[
+    {
+        "benchmark_id": "IC_tpu_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "2221.9656",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "59648.63",
+        "min_samples": "1024",
+        "num_samples": "140851",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-03-04T13:05:40.646"
+    },
+    {
+        "benchmark_id": "OD_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "1139.7375",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "59777.47",
+        "min_samples": "1024",
+        "num_samples": "71038",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-03-04T13:05:40.648"
+    },
+    {
+        "benchmark_id": "IS_uint8_mosaic",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "752.43976",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "59889.824",
+        "min_samples": "1024",
+        "num_samples": "46398",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-03-04T13:05:40.648"
+    },
+    {
+        "benchmark_id": "LU_int8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "101.101585",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "60001.188",
+        "min_samples": "1024",
+        "num_samples": "6098",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-03-04T13:05:40.649"
+    },
+    {
+        "benchmark_id": "IC_tpu_uint8_offline",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "3397.7402",
+        "accuracy": "N\/A",
+        "min_duration": "0.0",
+        "duration": "7233.0425",
+        "min_samples": "24576",
+        "num_samples": "24576",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-03-04T13:05:40.649"
+    },
+    {
+        "benchmark_id": "IS_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "490.75995",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "59887.727",
+        "min_samples": "1024",
+        "num_samples": "31970",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-03-04T13:05:40.649"
+    },
+    {
+        "benchmark_id": "IC_tpu_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "75.32%",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-03-04T13:05:40.649"
+    },
+    {
+        "benchmark_id": "OD_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "0.2745 mAP",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-03-04T13:05:40.649"
+    },
+    {
+        "benchmark_id": "IS_uint8_mosaic",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "0.5879 mIoU",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-03-04T13:05:40.649"
+    },
+    {
+        "benchmark_id": "LU_int8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "94.4000",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-03-04T13:05:40.649"
+    },
+    {
+        "benchmark_id": "IC_tpu_uint8_offline",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "0.0",
+        "accuracy": "75.32%",
+        "min_duration": "0.0",
+        "duration": "0.0",
+        "min_samples": "24576",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-03-04T13:05:40.649"
+    },
+    {
+        "benchmark_id": "IS_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "0.5453 mIoU",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-03-04T13:05:40.649"
+    }
+]

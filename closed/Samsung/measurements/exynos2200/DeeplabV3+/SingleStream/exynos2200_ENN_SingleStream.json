@@ -1,0 +1,7 @@
+{
+	"input_data_types": "int8",
+	 "retraining": "none",
+	 "starting_weights_filename": "https://github.com/mlcommons/mobile_models/blob/main/v0_7/tflite/deeplabv3_mnv2_ade20k_float.tflite",
+	 "weight_data_types": "int8",
+	 "weight_transformations": "code/DeeplabV3+/Calibration_process.adoc"
+ }

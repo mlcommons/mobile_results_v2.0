@@ -1,0 +1,1114 @@
+From c9e336c5f4a5565c907aa3e41c603c36c72292c2 Mon Sep 17 00:00:00 2001
+From: Mohit Mundhra <quic_mmundhra@quicinc.com>
+Date: Thu, 24 Feb 2022 19:53:50 +0530
+Subject: [PATCH] MLPerf V2.0 submission from Qualcomm
+
+Co-Author: Mohit Mundhra <quic_mmundhra@quicinc.com>
+Co-Author: Aasheesh Tiwari <quic_aasheesh@quicinc.com>
+---
+ android/cpp/mlperf_driver.cc                  |   2 +-
+ .../activities/CalculatingActivity.java       |   2 +-
+ mobile_back_qti/BUILD                         |  16 +-
+ mobile_back_qti/DLC/Makefile                  | 153 ++++++++---
+ mobile_back_qti/DLC/argmax-quant.json         |  13 -
+ mobile_back_qti/README.md                     |  16 +-
+ mobile_back_qti/cpp/backend_qti/BUILD         |   1 +
+ mobile_back_qti/cpp/backend_qti/allocator.h   |   3 +-
+ mobile_back_qti/cpp/backend_qti/cpuctrl.cc    |   4 +-
+ mobile_back_qti/cpp/backend_qti/cpuctrl.h     |   1 +
+ .../cpp/backend_qti/mlperf_helper.h           |   2 +
+ .../cpp/backend_qti/qti_backend_helper.cc     |  50 +++-
+ .../cpp/backend_qti/qti_backend_helper.h      |   5 +-
+ mobile_back_qti/cpp/backend_qti/qti_c.cc      |  26 ++
+ .../cpp/backend_qti/qti_settings.h            | 237 +++++++++++++++++-
+ .../docker/mlperf_mobiledet/Dockerfile        |  18 --
+ .../docker/mlperf_mosaic/Dockerfile           |   2 +
+ mobile_back_qti/make/qti_backend.mk           |  24 +-
+ mobile_back_qti/variables.bzl                 |   1 -
+ 19 files changed, 466 insertions(+), 110 deletions(-)
+ delete mode 100644 mobile_back_qti/DLC/argmax-quant.json
+ delete mode 100644 mobile_back_qti/docker/mlperf_mobiledet/Dockerfile
+ create mode 100644 mobile_back_qti/docker/mlperf_mosaic/Dockerfile
+
+diff --git a/android/cpp/mlperf_driver.cc b/android/cpp/mlperf_driver.cc
+index 2978dd4..7290691 100644
+--- a/android/cpp/mlperf_driver.cc
++++ b/android/cpp/mlperf_driver.cc
+@@ -102,7 +102,7 @@ void MlperfDriver::RunMLPerfTest(const std::string& mode, int min_query_count,
+   } else {
+     // Run MLPerf in SingleStream mode by default.
+     mlperf_settings.scenario = ::mlperf::TestScenario::SingleStream;
+-    mlperf_settings.single_stream_expected_latency_ns = 1000000;
++    mlperf_settings.single_stream_expected_latency_ns = 800000;
+     mlperf_settings.min_duration_ms = min_duration;
+   }
+ 
+diff --git a/android/java/org/mlperf/inference/activities/CalculatingActivity.java b/android/java/org/mlperf/inference/activities/CalculatingActivity.java
+index b2d62df..0c49617 100644
+--- a/android/java/org/mlperf/inference/activities/CalculatingActivity.java
++++ b/android/java/org/mlperf/inference/activities/CalculatingActivity.java
+@@ -101,7 +101,7 @@ public class CalculatingActivity extends BaseActivity
+   public static final String RESULTS_PREF = "RESULTS";
+   public static final String CONFIG_PATH = "CONFIG_PATH";
+   public static final String CONFIG_SDCARD_PATH =
+-      "/storage/emulated/0/mlperf_datasets/tasks_v2.pbtxt";
++      "/storage/emulated/0/mlperf_datasets/tasks_v4.pbtxt";
+   public static final String CONFIG_DEFAULT_URL =
+       "https://github.com/mlcommons/mobile_models/raw/main/v1_0/assets/tasks_v4.pbtxt";
+   public static final String SETTINGS_PATH = "SETTINGS_PATH";
+diff --git a/mobile_back_qti/BUILD b/mobile_back_qti/BUILD
+index 5b56ac8..c8414d1 100644
+--- a/mobile_back_qti/BUILD
++++ b/mobile_back_qti/BUILD
+@@ -28,8 +28,8 @@ config_setting(
+ cc_library(
+     name = "snpe",
+     srcs = [
+-        SNPE_VERSION + "/lib/aarch64-android-clang6.0/libSNPE.so",
+-        SNPE_VERSION + "/lib/aarch64-android-clang6.0/libhta.so",
++        SNPE_VERSION + "/lib/aarch64-android-clang8.0/libSNPE.so",
++        SNPE_VERSION + "/lib/aarch64-android-clang8.0/libhta.so",
+     ],
+     hdrs = glob([
+         SNPE_VERSION + "/include/zdl/**/*.hpp",
+@@ -42,11 +42,17 @@ cc_library(
+ cc_library(
+     name = "snpe_deps",
+     srcs = [
+-        SNPE_VERSION + "/lib/aarch64-android-clang6.0/libhta.so",
+-        SNPE_VERSION + "/lib/aarch64-android-clang6.0/libsnpe_dsp_domains_v2.so",
+-        SNPE_VERSION + "/lib/aarch64-android-clang6.0/libsnpe_dsp_domains_v3.so",
++        SNPE_VERSION + "/lib/aarch64-android-clang8.0/libhta.so",
++        SNPE_VERSION + "/lib/aarch64-android-clang8.0/libsnpe_dsp_domains_v2.so",
++        SNPE_VERSION + "/lib/aarch64-android-clang8.0/libsnpe_dsp_domains_v3.so",
++        SNPE_VERSION + "/lib/aarch64-android-clang8.0/libSnpeHtpV69Stub.so",
++        SNPE_VERSION + "/lib/aarch64-android-clang8.0/libSnpeHtpV68Stub.so",
++        SNPE_VERSION + "/lib/aarch64-android-clang8.0/libSNPE.so",
++        SNPE_VERSION + "/lib/aarch64-android-clang8.0/libSnpeHtpPrepare.so",
+         SNPE_VERSION + "/lib/dsp/libsnpe_dsp_v66_domains_v2_skel.so",
+         SNPE_VERSION + "/lib/dsp/libsnpe_dsp_v68_domains_v3_skel.so",
++        SNPE_VERSION + "/lib/dsp/libSnpeHtpV69Skel.so",
++        SNPE_VERSION + "/lib/dsp/libSnpeHtpV68Skel.so",
+     ],
+ )
+ 
+diff --git a/mobile_back_qti/DLC/Makefile b/mobile_back_qti/DLC/Makefile
+index 5f16a95..9a1b66e 100644
+--- a/mobile_back_qti/DLC/Makefile
++++ b/mobile_back_qti/DLC/Makefile
+@@ -35,6 +35,7 @@ MODEL_BASE_PATH=${DLCBUILDDIR}/mobile
+ MOBILENETEDGETPU_MODEL_PATH=${MODEL_BASE_PATH}/vision/mobilenet/models_and_code/checkpoints/float
+ DEEPLABV3QAT_MODEL_PATH=${MODEL_BASE_PATH}/vision/deeplab/models_and_code/checkpoints/quantize_aware_training
+ MOBILEBERT_MODEL_PATH=${MODEL_BASE_PATH}/language/bert/models_and_code/checkpoints/quant/
++MOBILEMOSAIC_MODEL_PATH=${MODEL_BASE_PATH}/vision/mosaic/models_and_checkpoints/R4/
+ 
+ ${DLCBUILDDIR}/mlperf_mobile_docker_1_1.stamp:
+ 	# Building mlperf_mobile docker
+@@ -42,16 +43,28 @@ ${DLCBUILDDIR}/mlperf_mobile_docker_1_1.stamp:
+ 	mkdir -p ${DLCBUILDDIR}
+ 	touch $@
+ 
++${DLCBUILDDIR}/mlperf_mosaic_docker.stamp:
++	# Building mlperf_mosaic docker
++	docker image build -t mlperf_mosaic:1.0 $(dir $(abspath ${TOPDIR}/mobile_back_qti/docker/mlperf_mosaic/Dockerfile))
++	mkdir -p ${DLCBUILDDIR}
++	touch $@
+ 
+ hta-dlc: ${DLCBUILDDIR}/mobilenet_edgetpu_224_1.0_hta.stamp \
+ 	${DLCBUILDDIR}/ssd_mobiledet_qat_hta.stamp \
++	${DLCBUILDDIR}/mobile_mosaic_hta.stamp \
+ 	${DLCBUILDDIR}/deeplabv3_hta.stamp
+ 
+ htp-dlc: ${DLCBUILDDIR}/mobilebert_htp.stamp \
+ 	${DLCBUILDDIR}/mobilenet_edgetpu_224_1.0_htp.stamp \
+ 	${DLCBUILDDIR}/ssd_mobiledet_qat_htp.stamp \
+ 	${DLCBUILDDIR}/deeplabv3_htp.stamp \
+-	${DLCBUILDDIR}/mobilenet_edgetpu_224_1.0_htp_batched.stamp
++	${DLCBUILDDIR}/mobilenet_edgetpu_224_1.0_htp_batched.stamp \
++	${DLCBUILDDIR}/mobile_mosaic_htp.stamp \
++	${DLCBUILDDIR}/deeplabv3_float.dlc
++
++mosaic: \
++	${DLCBUILDDIR}/mobile_mosaic_htp.stamp \
++	${DLCBUILDDIR}/mobile_mosaic_hta.stamp
+ 
+ mobilenet_edgetpu: \
+ 	${DLCBUILDDIR}/mobilenet_edgetpu_224_1.0_htp.stamp \
+@@ -68,6 +81,12 @@ deeplabv3: \
+ mobilebert: \
+ 	${DLCBUILDDIR}/mobilebert_htp.stamp
+ 
++deeplab_float: ${DLCBUILDDIR}/deeplabv3_float.dlc
++
++${BUILDDIR}/datasets.stamp:
++	(cd ../datasets && make)
++	touch $@
++
+ ${DLCBUILDDIR}/mobile/.stamp:
+ 	# Downloading mobile
+ 	mkdir -p ${DLCBUILDDIR}
+@@ -136,7 +155,7 @@ ${DLCBUILDDIR}/mobilenet_edgetpu_224_1.0_htp.stamp: \
+ 			--input_list=imagenet_image_list.txt \
+ 			--output_dlc=/output/mobilenet_edgetpu_224_1.0_htp.dlc \
+ 			--enable_htp \
+-			--htp_socs sm8350,sm7325
++			--htp_socs sm8350,sm7325,sm8450
+ 	# Mobilenetedge TPU model conversion completed
+ 	touch $@
+ 
+@@ -155,7 +174,7 @@ ${DLCBUILDDIR}/mobilenet_edgetpu_224_1.0_float_batched.dlc: \
+ 		mlperf_mobile:1.1 \
+ 		/snpe_sdk/bin/x86_64-linux-clang/snpe-tensorflow-to-dlc \
+ 			-i /models/frozen_graph_tf1x_transform.pb \
+-			-d input "4,224,224,3" --out_node "MobilenetEdgeTPU/Predictions/Softmax" \
++			-d input "3,224,224,3" --out_node "MobilenetEdgeTPU/Predictions/Softmax" \
+ 			-o /output/mobilenet_edgetpu_224_1.0_float_batched.dlc
+ 
+ ${DLCBUILDDIR}/mobilenet_edgetpu_224_1.0_htp_batched.stamp: \
+@@ -177,7 +196,7 @@ ${DLCBUILDDIR}/mobilenet_edgetpu_224_1.0_htp_batched.stamp: \
+ 			--input_list=imagenet_image_list.txt \
+ 			--output_dlc=/output/mobilenet_edgetpu_224_1.0_htp_batched.dlc \
+ 			--enable_htp \
+-			--htp_socs sm8350,sm7325
++			--htp_socs sm8350,sm7325,sm8450
+ 	# Mobilenetedge TPU model conversion completed
+ 	touch $@
+ 	
+@@ -247,35 +266,30 @@ ${DLCBUILDDIR}/ssd_mobiledet_qat_htp.stamp: \
+ 			--input_list=coco_image_list.txt \
+ 			--output_dlc=/output/ssd_mobiledet_qat_htp.dlc \
+ 			--enable_htp \
+-			--htp_socs sm8350,sm7325
++			--htp_socs sm8350,sm7325,sm8450
+ 	# SSD MobileDET model conversion for HTP completed
+ 	touch $@
+ 
+-
+-${DLCBUILDDIR}/deeplabv3_quantized.dlc: \
+-		${DLCDIR}/argmax-quant.json \
+-		${DEEPLABV3QAT_MODEL_PATH}/freeze.pb \
+-		${DLCBUILDDIR}/mlperf_mobile_docker_1_1.stamp \
+-		${DLCBUILDDIR}/mobile/.stamp
+-	# Deeplab v3 model conversion ....
+-	# Deeplabv3 QAT model
+-	cat ${DLCDIR}/argmax-quant.json
+-	docker run \
++${DLCBUILDDIR}/deeplabv3_float.dlc: \
++		${DLCBUILDDIR}/mobile/.stamp ${DEEPLABV3QAT_MODEL_PATH}/freeze.pb \
++		${DLCBUILDDIR}/mlperf_mobile_docker_1_1.stamp
++	@echo "Deeplab v3 model conversion ...."
++	@echo "Deeplabv3 model"
++	@mkdir -p ${DLCBUILDDIR}
++	@docker run \
+ 		-e PYTHONPATH=/snpe_sdk/lib/python \
+ 		-v ${SNPE_SDK}:/snpe_sdk \
+ 		-v ${DEEPLABV3QAT_MODEL_PATH}:/deeplabv3 \
+ 		-v ${DLCBUILDDIR}:/output \
+-		-v ${DLCDIR}:/dlc \
++		-v ${TOPDIR}/DLC:/dlc \
+ 		-u ${USERID}:${GROUPID} \
+ 		mlperf_mobile:1.1 \
+-		/snpe_sdk/bin/x86_64-linux-clang/snpe-tensorflow-to-dlc \
+-			-i /deeplabv3/freeze.pb \
+-			-d ImageTensor "1,512,512,3" \
+-			--out_node ArgMax \
+-			--quantization_overrides /dlc/argmax-quant.json \
+-			-o /output/deeplabv3_quantized.dlc
+-	# Generated DLC from Deeplabv3 QAT model
+-
++		/bin/bash -c '/snpe_sdk/bin/x86_64-linux-clang/snpe-tensorflow-to-dlc \
++		-i /deeplabv3/freeze.pb \
++		-d ImageTensor "1,512,512,3" \
++		--out_node ArgMax \
++		-o /output/deeplabv3_float.dlc'
++	@echo "Generated DLC from Deeplabv3 model"
+ 
+ ${DLCBUILDDIR}/ade20k/ade20k_image_list.txt: ${DLCBUILDDIR}/ade20k/state/quantdata.stamp
+ 	mkdir -p ${DLCBUILDDIR}/ade20k
+@@ -284,7 +298,7 @@ ${DLCBUILDDIR}/ade20k/ade20k_image_list.txt: ${DLCBUILDDIR}/ade20k/state/quantda
+ ${DLCBUILDDIR}/deeplabv3_hta.stamp: \
+ 		${DLCBUILDDIR}/mlperf_mobile_docker_1_1.stamp \
+ 		${DLCBUILDDIR}/ade20k/ade20k_image_list.txt \
+-		${DLCBUILDDIR}/deeplabv3_quantized.dlc
++		${DLCBUILDDIR}/deeplabv3_float.dlc
+ 	# Quantization of Deeplabv3 DLC
+ 	docker run \
+ 		-e PYTHONPATH=/snpe_sdk/lib/python \
+@@ -296,8 +310,9 @@ ${DLCBUILDDIR}/deeplabv3_hta.stamp: \
+ 		-u ${USERID}:${GROUPID} \
+ 		mlperf_mobile:1.1 \
+ 		/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-quantize \
+-			--input_dlc=/output/deeplabv3_quantized.dlc \
++			--input_dlc=/output/deeplabv3_float.dlc \
+ 			--input_list=ade20k_image_list.txt \
++			--use_encoding_optimizations \
+ 			--output_dlc=/output/deeplabv3_hta.dlc \
+ 			--enable_hta
+ 	# Deeplab v3 model conversion completed
+@@ -307,7 +322,7 @@ ${DLCBUILDDIR}/deeplabv3_hta.stamp: \
+ ${DLCBUILDDIR}/deeplabv3_htp.stamp: \
+ 		${DLCBUILDDIR}/mlperf_mobile_docker_1_1.stamp \
+ 		${DLCBUILDDIR}/ade20k/ade20k_image_list.txt \
+-		${DLCBUILDDIR}/deeplabv3_quantized.dlc
++		${DLCBUILDDIR}/deeplabv3_float.dlc
+ 	# Quantization of Deeplabv3 DLC
+ 	docker run \
+ 		-e PYTHONPATH=/snpe_sdk/lib/python \
+@@ -319,13 +334,13 @@ ${DLCBUILDDIR}/deeplabv3_htp.stamp: \
+ 		-u ${USERID}:${GROUPID} \
+ 		mlperf_mobile:1.1 \
+ 		/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-quantize \
+-			--input_dlc=/output/deeplabv3_quantized.dlc \
++			--input_dlc=/output/deeplabv3_float.dlc \
+ 			--input_list=ade20k_image_list.txt \
+ 			--output_dlc=/output/deeplabv3_htp.dlc \
+-			--override_params --enable_htp \
+-			--htp_socs sm8350,sm7325
++			--use_encoding_optimizations \
++			--enable_htp \
++			--htp_socs sm8350,sm7325,sm8450
+ 	# Deeplab v3 model conversion completed
+-	@# Can't use deeplabv3_htp.dlc as make target since this file is present on failure
+ 	touch $@
+ 
+ ${DLCBUILDDIR}/mobilebert_quant.pb: \
+@@ -398,11 +413,83 @@ ${DLCBUILDDIR}/mobilebert_htp.stamp: \
+ 			--weights_bitwidth 8 \
+ 			--act_bitwidth 8 \
+ 			--enable_htp \
+-			--htp_socs sm7325,sm8350 \
++			--htp_socs sm7325,sm8350,sm8450 \
+ 			--use_encoding_optimizations \
+ 			--output_dlc=/output/mobilebert_quantized_htp.dlc
+ 	touch $@
+ 
++${DLCBUILDDIR}/mobile_mosaic_float.dlc: \
++		${DLCBUILDDIR}/mobile/.stamp \
++		${DLCBUILDDIR}/mlperf_mosaic_docker.stamp \
++		${DLCBUILDDIR}/mobile/.stamp
++	# Mobile Mosaic model conversion ....
++	# Mobile Mosaic QAT model
++	docker run \
++		-e PYTHONPATH=/snpe_sdk/lib/python \
++		-v ${SNPE_SDK}:/snpe_sdk \
++		-v ${MOBILEMOSAIC_MODEL_PATH}:/mobile_mosaic \
++		-v ${DLCBUILDDIR}:/output \
++		-v ${TOPDIR}/DLC:/dlc \
++		-u ${USERID}:${GROUPID} \
++		mlperf_mosaic:1.0 \
++		/snpe_sdk/bin/x86_64-linux-clang/snpe-tensorflow-to-dlc \
++			-i /mobile_mosaic/mobile_segmenter_r4_frozen_graph.pb \
++			-d sub_2 "1,512,512,3" \
++			--out_node ArgMax \
++			-o /output/mobile_mosaic_float.dlc
++	# Generated DLC from mobile Mosaic QAT model
++
++${DLCBUILDDIR}/mobile_mosaic_htp.stamp: \
++		${DLCBUILDDIR}/mlperf_mobile_docker_1_1.stamp \
++		${DLCBUILDDIR}/ade20k/ade20k_image_list.txt \
++		${DLCBUILDDIR}/mobile_mosaic_float.dlc
++	# Quantization of Mobile Mosaic DLC
++	docker run \
++		-e PYTHONPATH=/snpe_sdk/lib/python \
++		-e LD_LIBRARY_PATH=/snpe_sdk/lib/x86_64-linux-clang \
++		-v ${SNPE_SDK}:/snpe_sdk \
++		-v ${DLCBUILDDIR}:/output \
++		-v ${DLCBUILDDIR}/ade20k:/ade20k \
++		-w /ade20k \
++		-u ${USERID}:${GROUPID} \
++		mlperf_mobile:1.1 \
++		/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-quantize \
++			--input_dlc=/output/mobile_mosaic_float.dlc \
++			--input_list=ade20k_image_list.txt \
++			--output_dlc=/output/mobile_mosaic_htp.dlc \
++			--enable_htp \
++			--optimizations cle \
++			--optimizations bc \
++			--use_encoding_optimizations \
++			--htp_socs sm8450,sm8350,sm7325
++	#Mobile Mosaic HTP model conversion completed
++	touch $@
++
++${DLCBUILDDIR}/mobile_mosaic_hta.stamp: \
++		${DLCBUILDDIR}/mlperf_mobile_docker_1_1.stamp \
++		${DLCBUILDDIR}/ade20k/ade20k_image_list.txt \
++		${DLCBUILDDIR}/mobile_mosaic_float.dlc
++	# Quantization of Mobile Mosaic DLC
++	docker run \
++		-e PYTHONPATH=/snpe_sdk/lib/python \
++		-e LD_LIBRARY_PATH=/snpe_sdk/lib/x86_64-linux-clang \
++		-v ${SNPE_SDK}:/snpe_sdk \
++		-v ${DLCBUILDDIR}:/output \
++		-v ${DLCBUILDDIR}/ade20k:/ade20k \
++		-w /ade20k \
++		-u ${USERID}:${GROUPID} \
++		mlperf_mobile:1.1 \
++		/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-quantize \
++			--input_dlc=/output/mobile_mosaic_float.dlc \
++			--input_list=ade20k_image_list.txt \
++			--output_dlc=/output/mobile_mosaic_hta.dlc \
++			--enable_hta \
++			--optimizations cle \
++			--optimizations bc
++	#Mobile Mosaic HTA model conversion completed
++	touch $@
++
++
+ ####################################################################################
+ # CALIBRATION / QUANTIZATION
+ ####################################################################################
+@@ -528,6 +615,7 @@ gen-hta-dlc-info: \
+ 		/bin/bash -c '\
+ 			/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-info -i /dlc/mobilenet_edgetpu_224_1.0_hta.dlc && \
+ 			/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-info -i /dlc/ssd_mobiledet_qat_htp.dlc && \
++			/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-info -i /dlc/mobile_mosaic_hta.dlc' && \
+ 			/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-info -i /dlc/deeplabv3_hta.dlc'
+ 
+ gen-htp-dlc-info: \
+@@ -545,6 +633,7 @@ gen-htp-dlc-info: \
+ 			/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-info -i /dlc/ssd_mobiledet_qat_htp.dlc && \
+ 			/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-info -i /dlc/deeplabv3_htp.dlc && \
+ 			/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-info -i /dlc/mobilenet_edgetpu_224_1.0_htp_batched.dlc && \
++			/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-info -i /dlc/mobile_mosaic_htp.dlc' && \
+ 			/snpe_sdk/bin/x86_64-linux-clang/snpe-dlc-info -i /dlc/mobilebert_quantized_htp.dlc'
+ 
+ ####################################################################################
+diff --git a/mobile_back_qti/DLC/argmax-quant.json b/mobile_back_qti/DLC/argmax-quant.json
+deleted file mode 100644
+index 7346a08..0000000
+--- a/mobile_back_qti/DLC/argmax-quant.json
++++ /dev/null
+@@ -1,13 +0,0 @@
+-{
+-     "activation_encodings": {
+-         "ArgMax:0": [{
+-             "min": 0,
+-             "max": 255,
+-             "scale": 1,
+-             "offset": 0,
+-             "is_symmetric": "False",
+-             "bitwidth": 8
+-        }]
+-    },
+-    "param_encodings": {}
+-}
+diff --git a/mobile_back_qti/README.md b/mobile_back_qti/README.md
+index 23e06ef..305b7b9 100644
+--- a/mobile_back_qti/README.md
++++ b/mobile_back_qti/README.md
+@@ -11,16 +11,16 @@ uploaded with the other submission files to here: `<path where needs to be uploa
+ 
+ ## Requirements
+ 
+-* [SNPE SDK](https://developer.qualcomm.com/software/qualcomm-neural-processing-sdk)
+-  * Version 1.54.2
++* [SNPE SDK](https://createpoint.qti.qualcomm.com/tools/#suite/9186/64383)
++  * Version 1.59.1 (Needs special access to the above link. POC: wchou@qti.qualcomm.com)
+ * Linux machine capable of running Ubuntu 18.04 docker images
+ 
+ After downloading and unzipping the SNPE SDK, make sure to set SNPE_SDK to its location:
+ 
+ ```shell
+ cd /opt
+-unzip snpe-1.54.2.2899.zip
+-export SNPE_SDK=/opt/snpe-1.54.2.2899
++unzip snpe-1.59.1.3230.zip
++export SNPE_SDK=/opt/snpe-1.59.1.3230
+ ```
+ 
+ ### Optional
+@@ -39,7 +39,7 @@ export GITHUB_TOKEN=<your-personal-access-token>
+ cd DLC/ && make
+ ```
+ 
+-It will take a couple hours on an 8-core Xeon workstation to generate the DLC files.
++It will take 5-6 hours on an 8-core Xeon workstation to generate the DLC files.
+ 
+ ## Building the MLPerf app with the QTI backend
+ 
+@@ -80,17 +80,17 @@ backend specific data for each task to be run. This backend assumes a few things
+ the settings:
+ 
+ 1. All the models use "SNPE" for the configuration name and use "snpe_aip", "snpe_dsp",
+-   "psnpe_aip", or "psnpe_dsp" for the accelerator value when using SNPE.
++   "psnpe_aip", or "psnpe_dsp" for the accelerator value when using SNPE / PSNPE.
+ 
+ ## FAQ
+ 
+ ### Do I need to build the DLC files?
+ 
+-No, the information to build the DLC files is only to show how they are created.
++No, the information to build the DLC files is only to show how they are created. But if you want, you may.
+ 
+ ### What devices does this backend support?
+ 
+-This backend only supports SDM865/SDM865 Pro ,SDM888/SDM888 Pro and SDM778G devices. Other Snapdragon
++This backend only supports SDM865/SDM865 Pro ,SDM888/SDM888 Pro, SDM778G, SD8G1 devices. Other Snapdragon
+ based devices will not run the MLPerf app. Future updates of the app will provide
+ additional device support.
+ 
+diff --git a/mobile_back_qti/cpp/backend_qti/BUILD b/mobile_back_qti/cpp/backend_qti/BUILD
+index 0efd016..b9ce8f4 100644
+--- a/mobile_back_qti/cpp/backend_qti/BUILD
++++ b/mobile_back_qti/cpp/backend_qti/BUILD
+@@ -94,6 +94,7 @@ cc_library(
+         ],
+     }),
+     copts = tflite_copts() + snpe_copts,
++    local_defines = ["SNPE_VERSION_STRING=" + SNPE_VERSION],
+     deps = [
+         "//android/cpp/c:headers",
+         ":qti_allocator",
+diff --git a/mobile_back_qti/cpp/backend_qti/allocator.h b/mobile_back_qti/cpp/backend_qti/allocator.h
+index 72d021f..8b484cd 100644
+--- a/mobile_back_qti/cpp/backend_qti/allocator.h
++++ b/mobile_back_qti/cpp/backend_qti/allocator.h
+@@ -153,7 +153,6 @@ class Allocator {
+   }
+ 
+   void deallocate(T *p, std::size_t n) noexcept {
+-    ChunkAllocator::getRpcMem().Free(p);
+     if (useIonBuffer) {
+       ChunkAllocator::getRpcMem().Free(p);
+     } else {
+@@ -176,7 +175,7 @@ template <class T>
+ bool Allocator<T>::useIonBuffer = true;
+ 
+ static void *get_ion_buffer(size_t n) {
+-  void *p = ChunkAllocator::GetBuffer(n, 4);
++  void *p = ChunkAllocator::GetBuffer(n, 3);
+   // LOG(INFO) << "QTI backend SNPE allocator " << n << " bytes at " << p;
+   return p;
+ }
+diff --git a/mobile_back_qti/cpp/backend_qti/cpuctrl.cc b/mobile_back_qti/cpp/backend_qti/cpuctrl.cc
+index e5533dc..d4c9d83 100644
+--- a/mobile_back_qti/cpp/backend_qti/cpuctrl.cc
++++ b/mobile_back_qti/cpp/backend_qti/cpuctrl.cc
+@@ -141,7 +141,7 @@ uint32_t CpuCtrl::getSocId() {
+     std::vector<uint32_t> low_latency_cores;
+     std::vector<uint32_t> high_latency_cores;
+     int maxcores = 0;
+-    if (soc_id_ == SDM888 || soc_id_ == SDM865 || soc_id_ == SDM778) {
++    if (soc_id_ == SDM888 || soc_id_ == SDM865 || soc_id_ == SDM778 || soc_id_ == SD8G1) {
+       high_latency_cores.emplace_back(0);
+       high_latency_cores.emplace_back(1);
+       high_latency_cores.emplace_back(2);
+@@ -149,7 +149,7 @@ uint32_t CpuCtrl::getSocId() {
+       maxcores = 8;
+     }
+ 
+-    if (soc_id_ == SDM888 || soc_id_ == SDM865 || soc_id_ == SDM778) {
++    if (soc_id_ == SDM888 || soc_id_ == SDM865 || soc_id_ == SDM778 || soc_id_ == SD8G1) {
+       low_latency_cores.emplace_back(4);
+       low_latency_cores.emplace_back(5);
+       low_latency_cores.emplace_back(6);
+diff --git a/mobile_back_qti/cpp/backend_qti/cpuctrl.h b/mobile_back_qti/cpp/backend_qti/cpuctrl.h
+index 42abbbf..605d944 100644
+--- a/mobile_back_qti/cpp/backend_qti/cpuctrl.h
++++ b/mobile_back_qti/cpp/backend_qti/cpuctrl.h
+@@ -21,6 +21,7 @@ limitations under the License.
+ #define SDM865 356
+ #define SDM888 415
+ #define SDM778 475
++#define SD8G1 457
+ 
+ class CpuCtrl {
+  public:
+diff --git a/mobile_back_qti/cpp/backend_qti/mlperf_helper.h b/mobile_back_qti/cpp/backend_qti/mlperf_helper.h
+index 908d8de..a86da1e 100644
+--- a/mobile_back_qti/cpp/backend_qti/mlperf_helper.h
++++ b/mobile_back_qti/cpp/backend_qti/mlperf_helper.h
+@@ -20,6 +20,8 @@ limitations under the License.
+ #include "qti_backend_helper.h"
+ #include "tensorflow/core/platform/logging.h"
+ 
++extern bool useIonBuffer_g;
++
+ static void process_config(const mlperf_backend_configuration_t *configs,
+                            QTIBackendHelper *backend_data) {
+   backend_data->isTflite_ = false;
+diff --git a/mobile_back_qti/cpp/backend_qti/qti_backend_helper.cc b/mobile_back_qti/cpp/backend_qti/qti_backend_helper.cc
+index 213e382..b53c9ed 100644
+--- a/mobile_back_qti/cpp/backend_qti/qti_backend_helper.cc
++++ b/mobile_back_qti/cpp/backend_qti/qti_backend_helper.cc
+@@ -13,8 +13,6 @@ See the License for the specific language governing permissions and
+ limitations under the License.
+ ==============================================================================*/
+ 
+-#include "qti_backend_helper.h"
+-
+ #include <string>
+ #include <vector>
+ 
+@@ -35,9 +33,12 @@ limitations under the License.
+ #include "SNPE/UserBufferList.hpp"
+ #include "absl/strings/ascii.h"
+ #include "cpuctrl.h"
++
+ #include "tensorflow/core/platform/logging.h"
+ #include "tflite_c.h"
+ 
++#include "qti_backend_helper.h"
++
+ int isSignedStatus = DEFAULT;
+ 
+ enum snpe_runtimes_t { SNPE_DSP = 0, SNPE_AIP = 1, SNPE_GPU = 2, SNPE_CPU = 3 };
+@@ -123,17 +124,17 @@ static zdl::DlSystem::Runtime_t Str2Delegate(const snpe_runtimes_t delegate) {
+   if (isDSP) {
+     if (isSignedStatus == DEFAULT) {
+       if (zdl::SNPE::SNPEFactory::isRuntimeAvailable(
+-              runtime, zdl::DlSystem::RuntimeCheckOption_t::NORMAL_CHECK)) {
+-        isSignedStatus = SIGNED_PD;
++            runtime, zdl::DlSystem::RuntimeCheckOption_t::UNSIGNEDPD_CHECK)) {
++        isSignedStatus = UNSIGNED_PD;
+         LOG(INFO) << "runtime " << delegate
+-                  << " is available on this platform with SignedPD";
++                  << " is available on this platform with UnsignedPD";
+       } else {
+         if (zdl::SNPE::SNPEFactory::isRuntimeAvailable(
+                 runtime,
+-                zdl::DlSystem::RuntimeCheckOption_t::UNSIGNEDPD_CHECK)) {
+-          isSignedStatus = UNSIGNED_PD;
++                zdl::DlSystem::RuntimeCheckOption_t::NORMAL_CHECK)) {
++          isSignedStatus = SIGNED_PD;
+           LOG(INFO) << "runtime " << delegate
+-                    << " is available on this platform with UnsignedPD";
++                    << " is available on this platform with SignedPD";
+         } else {
+           // This platform doesn't support DSP runtime
+           LOG(FATAL) << "runtime " << delegate
+@@ -141,6 +142,7 @@ static zdl::DlSystem::Runtime_t Str2Delegate(const snpe_runtimes_t delegate) {
+         }
+       }
+     }
++
+     return runtime;
+   } else {
+     if (!zdl::SNPE::SNPEFactory::isRuntimeAvailable(runtime)) {
+@@ -182,7 +184,11 @@ void QTIBackendHelper::use_psnpe(const char *model_path) {
+         ResolveOutputLayerNames(snpeOutputLayers_);
+ 
+     zdl::SNPE::SNPEBuilder snpeBuilder(container.get());
+-    snpeBuilder.setOutputLayers(outputLayers);
++    dummyInputRuntimeList.add(zdl::DlSystem::Runtime_t::CPU);
++    snpeBuilder.setPerformanceProfile(perfProfile_)
++        .setExecutionPriorityHint(zdl::DlSystem::ExecutionPriorityHint_t::HIGH)
++        .setRuntimeProcessorOrder(dummyInputRuntimeList)
++        .setOutputLayers(outputLayers);
+ 
+     if (outputLayers.size() > 0) {
+       buildConfig.outputBufferNames = outputLayers;
+@@ -195,7 +201,7 @@ void QTIBackendHelper::use_psnpe(const char *model_path) {
+     }
+ 
+     // These features are not for SDM865, so turning them off.
+-    if (useDspFeatures && (soc_id == SDM888 || soc_id == SDM778)) {
++    if (useDspFeatures && (soc_id == SDM888 || soc_id == SDM778 || soc_id == SD8G1)) {
+       // use Zero copy for input and output buffers.
+       // Requires rpc registered ion buffers.
+       if (useIonBuffers_) {
+@@ -222,10 +228,14 @@ void QTIBackendHelper::use_psnpe(const char *model_path) {
+   }
+ 
+   if (!psnpe_buildStatus) {
+-    LOG(FATAL) << "Error in init of the model ";
++    LOG(FATAL) << "Error in init of psnpe_ ";
++  }
++  if (!snpe_) {
++    LOG(FATAL) << "Error in init of snpe_ " << snpe_;
+   }
+ }
+ 
++
+ void QTIBackendHelper::use_snpe(const char *model_path) {
+   uint32_t soc_id = CpuCtrl::getSocId();
+   uint32_t numInits = get_num_inits();
+@@ -258,7 +268,7 @@ void QTIBackendHelper::use_snpe(const char *model_path) {
+     }
+ 
+     // These features are not for SDM865, so turning them off.
+-    if (useDspFeatures && (soc_id == SDM888 || soc_id == SDM778)) {
++    if (useDspFeatures && (soc_id == SDM888 || soc_id == SDM778 || soc_id == SD8G1)) {
+       // use Zero copy for input and output buffers.
+       // Requires rpc registered ion buffers.
+       if (useIonBuffers_) {
+@@ -323,7 +333,15 @@ void QTIBackendHelper::get_accelerator_instances(int &num_dsp, int &num_aip,
+       }
+       useDspFeatures = true;
+       num_dsp = 2;
+-      num_gpu = 4;
++      num_gpu = 0;
++    } else if (soc_id == SD8G1) {
++      if (delegate != "snpe_dsp" && delegate != "psnpe_dsp") {
++        LOG(FATAL) << "Error: Unsupported delegate for offline mode";
++      }
++      useDspFeatures = true;
++      num_dsp = 2;
++      num_aip = 0;
++      num_gpu = 0;
+     }
+   } else {
+     if (delegate == "snpe_dsp" || delegate == "psnpe_dsp") {
+@@ -551,3 +569,9 @@ void QTIBackendHelper::set_runtime_config() {
+     inputRuntimeList.add(runtime);
+   }
+ }
++
++std::string QTIBackendHelper::get_snpe_version() {
++  zdl::DlSystem::Version_t version = zdl::SNPE::SNPEFactory::getLibraryVersion();
++  return version.Build;
++}
++
+diff --git a/mobile_back_qti/cpp/backend_qti/qti_backend_helper.h b/mobile_back_qti/cpp/backend_qti/qti_backend_helper.h
+index af5a077..d6d4d9e 100644
+--- a/mobile_back_qti/cpp/backend_qti/qti_backend_helper.h
++++ b/mobile_back_qti/cpp/backend_qti/qti_backend_helper.h
+@@ -21,10 +21,11 @@ limitations under the License.
+ #include "DlSystem/IUserBufferFactory.hpp"
+ #include "SNPE/PSNPE.hpp"
+ #include "SNPE/SNPE.hpp"
+-#include "allocator.h"
+ #include "android/cpp/c/backend_c.h"
+ #include "android/cpp/c/type.h"
+ 
++#include "allocator.h"
++
+ #define SIGNED_PD 0
+ #define UNSIGNED_PD 1
+ #define DEFAULT -1
+@@ -32,6 +33,7 @@ limitations under the License.
+ class QTIBackendHelper {
+  private:
+   zdl::DlSystem::RuntimeList inputRuntimeList;
++  zdl::DlSystem::RuntimeList dummyInputRuntimeList;
+   zdl::PSNPE::RuntimeConfigList runtimeConfigsList;
+ 
+   inline int get_num_inits();
+@@ -82,6 +84,7 @@ class QTIBackendHelper {
+   void map_outputs();
+   void get_data_formats();
+   void set_runtime_config();
++  std::string get_snpe_version();
+ };
+ 
+ #endif
+diff --git a/mobile_back_qti/cpp/backend_qti/qti_c.cc b/mobile_back_qti/cpp/backend_qti/qti_c.cc
+index a30a83c..37dd967 100644
+--- a/mobile_back_qti/cpp/backend_qti/qti_c.cc
++++ b/mobile_back_qti/cpp/backend_qti/qti_c.cc
+@@ -24,6 +24,13 @@ limitations under the License.
+ #include "tensorflow/core/platform/logging.h"
+ #include "tflite_c.h"
+ 
++#define xverstr(a) verstr(a)
++#define verstr(a) #a
++
++#ifndef SNPE_VERSION_STRING
++#define SNPE_VERSION_STRING "default"
++#endif
++
+ static QTIBackendHelper *backend_data_ = nullptr;
+ 
+ #ifdef __cplusplus
+@@ -67,6 +74,9 @@ bool mlperf_backend_matches_hardware(const char **not_allowed_message,
+       case SDM778:
+         *settings = qti_settings_sdm778.c_str();
+         break;
++	  case SD8G1:
++        *settings = qti_settings_sd8g1.c_str();
++	  	break;
+       default:
+         // it's a QTI SOC, but the chipset is not yet supported
+         *not_allowed_message = "Unsupported QTI SoC";
+@@ -80,6 +90,7 @@ bool mlperf_backend_matches_hardware(const char **not_allowed_message,
+   *settings = nullptr;
+   return false;
+ }
++
+ // Create a new backend and return the pointer to it.
+ mlperf_backend_ptr_t mlperf_backend_create(
+     const char *model_path, mlperf_backend_configuration_t *configs,
+@@ -126,6 +137,16 @@ mlperf_backend_ptr_t mlperf_backend_create(
+   adsp_lib_path << "/system/lib/rfsa/adsp;/system/vendor/lib/rfsa/adsp;/dsp";
+   LOG(INFO) << "lib_path: " << adsp_lib_path.str();
+   setenv("ADSP_LIBRARY_PATH", adsp_lib_path.str().c_str(), 1 /*override*/);
++  std::string snpe_version = xverstr(SNPE_VERSION_STRING);
++  if (snpe_version.compare("default") != 0){
++    int dotPosition = snpe_version.find_last_of(".");
++    snpe_version = snpe_version.substr(dotPosition+1);
++  }
++
++  if (snpe_version.compare(backend_data->get_snpe_version()) != 0) {
++    LOG(FATAL) << "Snpe libs modified. expected: " << snpe_version << " found: " << backend_data->get_snpe_version();
++  }
++  LOG(INFO) << "snpe_version: " <<  snpe_version;
+ 
+   // set runtime config
+   backend_data->set_runtime_config();
+@@ -151,6 +172,11 @@ const char *mlperf_backend_name(mlperf_backend_ptr_t backend_ptr) {
+   return backend_data->name_;
+ }
+ 
++// Return the vendor name of this backend
++const char *mlperf_backend_vendor_name(mlperf_backend_ptr_t backend_ptr) {
++  return "QTI";
++}
++
+ // Destroy the backend pointer and its data.
+ void mlperf_backend_delete(mlperf_backend_ptr_t backend_ptr) {
+   QTIBackendHelper *backend_data = (QTIBackendHelper *)backend_ptr;
+diff --git a/mobile_back_qti/cpp/backend_qti/qti_settings.h b/mobile_back_qti/cpp/backend_qti/qti_settings.h
+index 066eae8..40bba69 100644
+--- a/mobile_back_qti/cpp/backend_qti/qti_settings.h
++++ b/mobile_back_qti/cpp/backend_qti/qti_settings.h
+@@ -119,6 +119,14 @@ benchmark_setting {
+   accelerator_desc: "AIP"
+   configuration: "SNPE"
+   src: "https://github.com/mlcommons/mobile_models/raw/main/v1_0/SNPE/deeplabv3_hta.dlc"
++}
++
++benchmark_setting {
++  benchmark_id: "IS_uint8_mosaic"
++  accelerator: "snpe_aip"
++  accelerator_desc: "AIP"
++  configuration: "SNPE"
++  src: "/sdcard/mlperf_models/mobile_mosaic_hta.dlc"
+ })SETTINGS";
+ 
+ const std::string qti_settings_sdm888 = R"SETTINGS(
+@@ -217,7 +225,7 @@ benchmark_setting {
+     id: "scenario"
+     value: "Offline"
+   }
+-  src: "https://github.com/mlcommons/mobile_models/raw/main/v1_1/SNPE/mobilenet_edgetpu_224_1.0_htp_batched.dlc"
++  src: "/sdcard/mlperf_models/mobilenet_edgetpu_224_1.0_htp_batched.dlc"
+ }
+ 
+ benchmark_setting {
+@@ -278,6 +286,26 @@ benchmark_setting {
+     value: "uint_8"
+   }
+   src: "https://github.com/mlcommons/mobile_models/raw/main/v1_1/SNPE/deeplabv3_htp.dlc"
++}
++
++benchmark_setting {
++  benchmark_id: "IS_uint8_mosaic"
++  accelerator: "snpe_dsp"
++  accelerator_desc: "HTP"
++  configuration: "SNPE"
++  custom_setting {
++    id: "input_buffer_type"
++    value: "uint_8"
++  }
++  custom_setting {
++    id: "bg_load"
++    value: "true"
++  }
++  custom_setting {
++    id: "output_buffer_type"
++    value: "uint_8"
++  }
++  src: "/sdcard/mlperf_models/mobile_mosaic_htp.dlc"
+ })SETTINGS";
+ 
+ const std::string qti_settings_sdm778 = R"SETTINGS(
+@@ -375,7 +403,7 @@ benchmark_setting {
+     id: "scenario"
+     value: "Offline"
+   }
+-  src: "https://github.com/mlcommons/mobile_models/raw/main/v1_1/SNPE/mobilenet_edgetpu_224_1.0_htp_batched.dlc"
++  src: "/sdcard/mlperf_models/mobilenet_edgetpu_224_1.0_htp_batched.dlc"
+ }
+ 
+ benchmark_setting {
+@@ -432,5 +460,210 @@ benchmark_setting {
+     value: "true"
+   }
+   src: "https://github.com/mlcommons/mobile_models/raw/main/v1_1/SNPE/deeplabv3_htp.dlc"
++}
++
++benchmark_setting {
++  benchmark_id: "IS_uint8_mosaic"
++  accelerator: "snpe_dsp"
++  accelerator_desc: "HTP"
++  configuration: "SNPE"
++  custom_setting {
++    id: "input_buffer_type"
++    value: "uint_8"
++  }
++  custom_setting {
++    id: "bg_load"
++    value: "true"
++  }
++  custom_setting {
++    id: "output_buffer_type"
++    value: "uint_8"
++  }
++  src: "/sdcard/mlperf_models/mobile_mosaic_htp.dlc"
+ })SETTINGS";
++
++
++const std::string qti_settings_sd8g1 = R"SETTINGS(
++common_setting {
++  id: "num_threads"
++  name: "Number of threads"
++  value {
++    value: "4"
++    name: "4 threads"
++  }
++  acceptable_value {
++    value: "1"
++    name: "Single thread"
++  }
++  acceptable_value {
++    value: "2"
++    name: "2 threads"
++  }
++  acceptable_value {
++    value: "4"
++    name: "4 threads"
++  }
++  acceptable_value {
++    value: "8"
++    name: "8 threads"
++  }
++  acceptable_value {
++    value: "16"
++    name: "16 threads"
++  }
++}
++
++common_setting {
++  id: "configuration"
++  name: "configuration"
++  value {
++    value: "QTI backend using SNPE, NNAPI and TFLite GPU Delegate"
++    name: "QTI"
++  }
++}
++
++common_setting {
++  id: "share_results"
++  name: "Share results"
++  value {
++    value: "0"
++    name: "false"
++  }
++  acceptable_value {
++    value: "1"
++    name: "true"
++  }
++  acceptable_value {
++    value: "0"
++    name: "false"
++  }
++}
++
++
++common_setting {
++  id: "cooldown"
++  name: "Cooldown"
++  value {
++    value: "1"
++    name: "true"
++  }
++  acceptable_value {
++    value: "1"
++    name: "true"
++  }
++  acceptable_value {
++    value: "0"
++    name: "false"
++  }
++}
++
++benchmark_setting {
++  benchmark_id: "IC_tpu_uint8"
++  accelerator: "snpe_dsp"
++  accelerator_desc: "HTP"
++  configuration: "SNPE"
++  custom_setting {
++    id: "bg_load"
++    value: "true"
++  }
++  src: "/sdcard/mlperf_models/mobilenet_edgetpu_224_1.0_htp.dlc"
++}
++
++benchmark_setting {
++  benchmark_id: "IC_tpu_uint8_offline"
++  accelerator: "psnpe_dsp"
++  accelerator_desc: "HTP"
++  configuration: "SNPE"
++  batch_size: 12288
++  custom_setting {
++    id: "scenario"
++    value: "Offline"
++  }
++  custom_setting {
++    id: "bg_load"
++    value: "true"
++  }
++  src: "/sdcard/mlperf_models/mobilenet_edgetpu_224_1.0_htp_batched.dlc"
++}
++
++benchmark_setting {
++  benchmark_id: "OD_uint8"
++  accelerator: "snpe_dsp"
++  accelerator_desc: "HTP"
++  configuration: "SNPE"
++  custom_setting {
++    id: "snpe_output_layers"
++    value: "Postprocessor/BatchMultiClassNonMaxSuppression"
++  }
++  custom_setting {
++    id: "bg_load"
++    value: "true"
++  }
++  src: "/sdcard/mlperf_models/ssd_mobiledet_qat_htp.dlc"
++}
++
++benchmark_setting {
++  benchmark_id: "LU_int8"
++  accelerator: "snpe_dsp"
++  accelerator_desc: "HTP"
++  configuration: "SNPE"
++  custom_setting {
++    id: "snpe_output_layers"
++    value: "transpose"
++  }
++  custom_setting {
++    id: "bg_load"
++    value: "true"
++  }
++  custom_setting {
++    id: "input_buffer_type"
++    value: "float_32"
++  }
++  custom_setting {
++    id: "use_ion_buffer"
++    value: "false"
++  }
++  src: "/sdcard/mlperf_models/mobilebert_quantized_htp.dlc"
++}
++
++benchmark_setting {
++  benchmark_id: "IS_uint8"
++  accelerator: "snpe_dsp"
++  accelerator_desc: "HTP"
++  configuration: "SNPE"
++  custom_setting {
++    id: "input_buffer_type"
++    value: "uint_8"
++  }
++  custom_setting {
++    id: "bg_load"
++    value: "true"
++  }
++  custom_setting {
++    id: "output_buffer_type"
++    value: "uint_8"
++  }
++  src: "/sdcard/mlperf_models/deeplabv3_htp.dlc"
++}
++
++benchmark_setting {
++  benchmark_id: "IS_uint8_mosaic"
++  accelerator: "snpe_dsp"
++  accelerator_desc: "HTP"
++  configuration: "SNPE"
++  custom_setting {
++    id: "input_buffer_type"
++    value: "uint_8"
++  }
++  custom_setting {
++    id: "bg_load"
++    value: "true"
++  }
++  custom_setting {
++    id: "output_buffer_type"
++    value: "uint_8"
++  }
++  src: "/sdcard/mlperf_models/mobile_mosaic_htp.dlc"
++})SETTINGS";
++
+ #endif
+diff --git a/mobile_back_qti/docker/mlperf_mobiledet/Dockerfile b/mobile_back_qti/docker/mlperf_mobiledet/Dockerfile
+deleted file mode 100644
+index 061dd51..0000000
+--- a/mobile_back_qti/docker/mlperf_mobiledet/Dockerfile
++++ /dev/null
+@@ -1,18 +0,0 @@
+-FROM tensorflow/tensorflow:1.15.0-py3
+-LABEL maintainer="quic_mcharleb@quicinc.com"
+-
+-RUN pip3 install tf-slim scipy Pillow opencv-python setuptools matplotlib tensorflow_hub
+-
+-# Create /opt/models for github.com/tensorflow/models
+-RUN curl -o /opt/tensorflow_models.tar.gz -L \
+-    https://github.com/tensorflow/models/archive/8a064338cf811494408089e0eb9a6e274784a6f9.tar.gz \
+-    && tar xzf /opt/tensorflow_models.tar.gz -C /opt \
+-    && rm /opt/tensorflow_models.tar.gz \
+-    && mv /opt/models-8a064338cf811494408089e0eb9a6e274784a6f9 /opt/models
+-
+-RUN apt-get install -y --no-install-recommends protobuf-compiler 
+-
+-# Compile tf_models/research protobufs
+-RUN ls /opt && cd /opt/models/research && protoc object_detection/protos/*.proto --python_out=.
+-
+-RUN chmod -R 777 /opt/ssdlite_mobiledet
+diff --git a/mobile_back_qti/docker/mlperf_mosaic/Dockerfile b/mobile_back_qti/docker/mlperf_mosaic/Dockerfile
+new file mode 100644
+index 0000000..9a686d3
+--- /dev/null
++++ b/mobile_back_qti/docker/mlperf_mosaic/Dockerfile
+@@ -0,0 +1,2 @@
++FROM tensorflow/tensorflow:2.6.0
++LABEL maintainer="quic_mcharleb@quicinc.com"
+diff --git a/mobile_back_qti/make/qti_backend.mk b/mobile_back_qti/make/qti_backend.mk
+index 7a87450..44bb029 100644
+--- a/mobile_back_qti/make/qti_backend.mk
++++ b/mobile_back_qti/make/qti_backend.mk
+@@ -24,17 +24,19 @@ ifeq (${WITH_QTI},1)
+ 
+   local_snpe_sdk_root=$(shell echo mobile_back_qti/snpe-* | awk '{print $$NF}')
+   $(info detected SNPE SDK: ${local_snpe_sdk_root})
+-  backend_qti_android_files= \
+-    ${BAZEL_LINKS_PREFIX}bin/mobile_back_qti/cpp/backend_qti/libqtibackend.so \
+-    ${BAZEL_LINKS_PREFIX}bin/android/commonlibs/lib_arm64/libc++_shared.so \
+-    ${local_snpe_sdk_root}/lib/aarch64-android-clang6.0/libSNPE.so \
+-    ${local_snpe_sdk_root}/lib/aarch64-android-clang6.0/libhta.so \
+-    ${local_snpe_sdk_root}/lib/aarch64-android-clang6.0/libsnpe_dsp_domains_v2.so \
+-    ${local_snpe_sdk_root}/lib/aarch64-android-clang6.0/libsnpe_dsp_domains_v3.so \
++  backend_qti_android_files=${BAZEL_LINKS_PREFIX}bin/mobile_back_qti/cpp/backend_qti/libqtibackend.so \
++    ${local_snpe_sdk_root}/lib/aarch64-android-clang8.0/libc++_shared.so \
++    ${local_snpe_sdk_root}/lib/aarch64-android-clang8.0/libSNPE.so \
++    ${local_snpe_sdk_root}/lib/aarch64-android-clang8.0/libhta.so \
++    ${local_snpe_sdk_root}/lib/aarch64-android-clang8.0/libsnpe_dsp_domains_v2.so \
++    ${local_snpe_sdk_root}/lib/aarch64-android-clang8.0/libsnpe_dsp_domains_v3.so \
++    ${local_snpe_sdk_root}/lib/aarch64-android-clang8.0/libSnpeHtpV69Stub.so \
++    ${local_snpe_sdk_root}/lib/aarch64-android-clang8.0/libSnpeHtpV68Stub.so \
++    ${local_snpe_sdk_root}/lib/aarch64-android-clang8.0/libSnpeHtpPrepare.so \
+     ${local_snpe_sdk_root}/lib/dsp/libsnpe_dsp_v66_domains_v2_skel.so \
+-    ${local_snpe_sdk_root}/lib/dsp/libsnpe_dsp_v68_domains_v3_skel.so
+-  backend_qti_android_target= \
+-    //mobile_back_qti/cpp/backend_qti:libqtibackend.so \
+-    //android/commonlibs:commonlibs
++    ${local_snpe_sdk_root}/lib/dsp/libsnpe_dsp_v68_domains_v3_skel.so \
++    ${local_snpe_sdk_root}/lib/dsp/libSnpeHtpV69Skel.so \
++    ${local_snpe_sdk_root}/lib/dsp/libSnpeHtpV68Skel.so
++  backend_qti_android_target=//mobile_back_qti/cpp/backend_qti:libqtibackend.so
+   backend_qti_filename=libqtibackend
+ endif
+diff --git a/mobile_back_qti/variables.bzl b/mobile_back_qti/variables.bzl
+index 5f3b988..1ff1501 100644
+--- a/mobile_back_qti/variables.bzl
++++ b/mobile_back_qti/variables.bzl
+@@ -1,5 +1,4 @@
+ """Find SNPE folder and pass it to bazel build config"""
+-
+ def _impl(repository_ctx):
+     if "windows" in repository_ctx.os.name:
+         fail("building with SNPE on Windows is not supported")
+-- 
+2.35.1
+

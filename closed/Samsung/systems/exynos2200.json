@@ -1,0 +1,21 @@
+{
+        "division": "closed",
+        "status": "available",
+        "submitter": "Samsung Electronics",
+        "system_name": "Samsung Galaxy S22+ 5G SM-S906B/DS",
+        
+        "number_of_nodes": 1,
+        "host_processor_model_name": "exynos2200",
+        "host_processors_per_node": 1,
+        "CPU_type_1": "ARM Cortex-X2 @ 2.8 GHz",
+        "CPU_type_2": "3x ARM Cortex-A710 @ 2.5 GHz",
+        "CPU_type_3": "4x ARM Cortex-A510 @ 1.7 MHz",
+        "Graphics": "Xclipse 920",
+        "Accelerator_type_1": "NPU",
+        "Memory": "8 GB LPDDR5",
+        "framework": "ENN v2.0.19",
+        "operating_system": "Android 12",
+        "other_software_stack": "Build number SP1A.210812.016.S906BXXU1",
+        "sw_notes": ""
+}
+

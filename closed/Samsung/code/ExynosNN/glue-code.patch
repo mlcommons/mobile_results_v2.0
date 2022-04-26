@@ -1,0 +1,3099 @@
+diff --git a/android/cpp/mlperf_driver.cc b/android/cpp/mlperf_driver.cc
+index 2978dd4..2548766 100644
+--- a/android/cpp/mlperf_driver.cc
++++ b/android/cpp/mlperf_driver.cc
+@@ -102,7 +102,7 @@ void MlperfDriver::RunMLPerfTest(const std::string& mode, int min_query_count,
+   } else {
+     // Run MLPerf in SingleStream mode by default.
+     mlperf_settings.scenario = ::mlperf::TestScenario::SingleStream;
+-    mlperf_settings.single_stream_expected_latency_ns = 1000000;
++    mlperf_settings.single_stream_expected_latency_ns = 900000;
+     mlperf_settings.min_duration_ms = min_duration;
+   }
+ 
+diff --git a/android/java/org/mlperf/inference/RunMLPerfWorker.java b/android/java/org/mlperf/inference/RunMLPerfWorker.java
+index 1b4c92d..96ef8cc 100644
+--- a/android/java/org/mlperf/inference/RunMLPerfWorker.java
++++ b/android/java/org/mlperf/inference/RunMLPerfWorker.java
+@@ -175,10 +175,7 @@ public final class RunMLPerfWorker implements Handler.Callback {
+       result.setDuration(driverWrapper.getDurationMs());
+       result.setMode(data.mode);
+       callback.onBenchmarkFinished(result);
+-
+-      if (!backendName.contains("samsung")) {
+-        driverWrapper.close();
+-      }
++      driverWrapper.close();
+     } catch (Exception e) {
+       Log.e(TAG, "Running \"" + modelName + "\" failed with error: " + e.getMessage());
+       Log.e(TAG, Log.getStackTraceString(e));
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/eden_sdk/include/sbe1200.hpp b/mobile_back_samsung/cpp/sbe_backend/jni/eden_sdk/include/sbe1200.hpp
+new file mode 100644
+index 0000000..22ce4f9
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/eden_sdk/include/sbe1200.hpp
+@@ -0,0 +1,131 @@
++/* Copyright 2020-2022 Samsung Electronics Co. LTD  All Rights Reserved.
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++    http://www.apache.org/licenses/LICENSE-2.0
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#ifndef SBE1200_H_
++#define SBE1200_H_
++
++/**
++ * @file sbe1200.hpp
++ * @brief samsung backend for 1200.
++ * @date 2022-01-04
++ * @author soobong Huh (soobong.huh@samsung.com)
++ */
++
++#include <iostream>
++#include <queue>
++#include <unordered_map>
++#include <thread>
++#include <unistd.h>
++#include <fstream>
++#include "client/eden_nn_api.h"
++#include "client/eden_types.h"
++#include "sbe_model_container.hpp"
++#include "sbe_utils.hpp"
++#include "type.h"
++namespace sbe {
++class sbe1200 {
++  public:
++  const std::string name_ = "sbe1200";
++	int m_batch_size;
++
++  /* common buf */
++	void* m_mdl_buf;
++	size_t m_mdl_buf_len;
++	HwPreference pref_hw = NPU_ONLY;
++
++  std::vector<float> det_lbl_boxes;
++  std::vector<float> det_lbl_indices;
++  std::vector<float> det_lbl_prob;
++  std::vector<float> det_num;
++
++  uint32_t mdl_id[MAX_INSTANCE];
++  std::vector<EdenBuffer *> m_mdl_inbuf;
++  std::vector<EdenBuffer *> m_mdl_outbuf;
++
++  void * m_batch_buf;
++
++  /* create request */
++  EdenRequest *requests;
++  EdenCallback *callbacks;
++  addr_t *requestId;
++  EdenPreference pref;
++  EdenModelOptions options;  
++
++  bool m_created;
++
++  model_container *mdl_container;
++
++  std::queue<std::pair<void*, void*>> task_pool;
++  std::unordered_map<void*, void*> heap_mem;
++
++  std::condition_variable inferece_start_cond[MAX_INSTANCE];
++  std::condition_variable inferece_done_cond;
++  std::mutex inference_start_mtx[MAX_INSTANCE];
++  std::mutex inference_done_mtx;
++  std::mutex task_deque_mtx;
++
++  std::atomic<bool> force_thread_done{true};
++  std::atomic<int> inference_done_count{0};
++  std::thread task_thread_executor[MAX_INSTANCE];
++
++  /* common API */
++  bool impl_closeModel();
++  bool impl_shutdown();
++  void clear();
++  bool inference();
++  void *allocate_buf(size_t);
++  void release_buf(void *);
++
++  void set_inbuf(void*, int, int);  
++  void config_request();
++  void impl_config_batch();
++  bool initialize(mlperf_backend_configuration_t *);
++
++  /* common external api */
++  void attach_model_container();
++  void impl_parse_mdl_attribute();
++  void impl_parse_ext_attribute(mlperf_backend_configuration_t *);
++
++  /*  batch execution */
++  void impl_inference_thread(int);
++  bool task_deque(int mdl_idx, std::pair<void*, void*>&node);
++
++  /* target specific */
++  bool open_model(const char*, const char*);
++  void impl_load_model(const char *);
++  bool set_model_buf();
++
++	sbe1200() : m_batch_size(0), m_mdl_buf(nullptr), m_created(false) {}
++};	// sbe1200
++
++#ifdef __cplusplus
++extern "C" {
++#endif  // __cplusplus
++
++  bool backend_create(const char *, mlperf_backend_configuration_t *, const char *);
++  mlperf_status_t backend_get_output(uint32_t, int32_t, void **);
++  int32_t backend_get_input_count();
++  mlperf_data_t backend_get_input_type(int32_t);
++  mlperf_status_t backend_set_input(int32_t, int32_t, void*);
++  int32_t backend_get_output_count();
++  mlperf_data_t backend_get_output_type(int32_t);
++  mlperf_status_t backend_issue_query();
++  void backend_convert_inputs(int, int, int, uint8_t*);
++  void backend_delete();
++  void *backend_get_buffer(size_t);
++  void backend_release_buffer(void*);
++
++#ifdef __cplusplus
++}
++#endif  // __cplusplus
++
++} // namespace sbe;
++#endif
+\ No newline at end of file
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/eden_sdk/sbe1200.cc b/mobile_back_samsung/cpp/sbe_backend/jni/eden_sdk/sbe1200.cc
+new file mode 100644
+index 0000000..b43e052
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/eden_sdk/sbe1200.cc
+@@ -0,0 +1,583 @@
++#include "sbe1200.hpp"
++
++namespace sbe {
++	using namespace sbeID1200;
++	static sbe1200 sbe_obj;
++
++	void notify_f(addr_t *addr, addr_t value)
++	{
++		*addr = value;
++	}
++
++	int32_t wait_f(addr_t *addr, uint32_t value, uint32_t timeout)
++	{
++		MLOGD("wait done with addr[%d]", *addr);
++		while (timeout--) {
++			usleep(1);
++			if (*addr != INVALID_REQUEST_ID) {
++				MLOGD("changed callback done with addr[%d]", *addr);
++				*addr = INVALID_REQUEST_ID;
++				break;
++			}
++		}
++		if (timeout == 0) {
++			return -1;
++		}
++		return RET_OK;
++	}
++
++	void sbe1200::impl_load_model(const char *model_path)
++	{
++		std::ifstream infile(model_path);
++		infile.seekg(0, infile.end);
++		m_mdl_buf_len = infile.tellg();
++		infile.seekg(0, infile.beg);
++		if (m_mdl_buf_len > 0) {
++			m_mdl_buf = allocate_buf(m_mdl_buf_len);;
++			infile.read((char*)m_mdl_buf, m_mdl_buf_len);
++		}
++	}
++
++	bool sbe1200::task_deque(int mdl_idx, std::pair<void*, void*>&node)
++	{
++		std::unique_lock<std::mutex> lock(task_deque_mtx);
++		if(task_pool.size()==0) return false;
++		MLOGD("remained node[%lu]", task_pool.size());
++		node = task_pool.front();
++		MLOGD("mdl[%d] taken node[%p, %p]", mdl_idx, node.first, node.second);
++		task_pool.pop();
++		return true;
++	}
++
++	void sbe1200::impl_inference_thread(int mdl_idx)
++	{
++		MLOGD("inference_thread with mdl[%d]", mdl_idx);
++		int inbuf_size = mdl_container->m_inbuf_size;
++		int outbuf_size = mdl_container->m_outbuf_size;
++
++		while(true) {
++			std::unique_lock<std::mutex> lock(inference_start_mtx[mdl_idx]);
++			inferece_start_cond[mdl_idx].wait(lock, [this]{ return (!task_pool.empty() || force_thread_done);});
++			MLOGD("thread unlock with mdl[%d]", mdl_idx);
++			if(force_thread_done) return;
++
++			std::pair<void*, void*> buf;
++			while(task_deque(mdl_idx, buf)) {
++				MLOGD("mdl_idx[%d], m_mdl_inbuf[%x], m_mdl_outbuf[%x]", mdl_idx, m_mdl_inbuf[mdl_idx], m_mdl_outbuf[mdl_idx]);
++				MLOGD("m_mdl_inbuf[%d]->addr[%x], buf[%x]", mdl_idx, m_mdl_inbuf[mdl_idx]->addr, buf.first);
++				memcpy(m_mdl_inbuf[mdl_idx]->addr, buf.first, inbuf_size);
++				requests[mdl_idx].modelId = mdl_id[mdl_idx];
++				requests[mdl_idx].inputBuffers = m_mdl_inbuf[mdl_idx];
++				requests[mdl_idx].outputBuffers = m_mdl_outbuf[mdl_idx];
++
++				int ret = ExecuteModel(&requests[mdl_idx], &requestId[mdl_idx], pref);
++				if(ret != RET_OK) {
++					MLOGE("request an inference fail ret[%d]", ret);
++				}
++				else {
++					if(callbacks[mdl_idx].waitFor(&callbacks[mdl_idx].requestId, requestId[mdl_idx], EDEN_NN_TIMEOUT) < 0) {
++						MLOGE("inference callback fail - timeout");
++						break;
++					}
++				}
++				memcpy(buf.second, m_mdl_outbuf[mdl_idx]->addr, outbuf_size);
++			}
++			inference_done_count++;			
++			if(inference_done_count == MAX_INSTANCE) {
++					inferece_done_cond.notify_one();
++			}
++		}
++	}
++
++	bool sbe1200::impl_closeModel()
++	{
++		int ret = RET_OK;
++		for(int mdl_idx=0; mdl_idx < MAX_INSTANCE && mdl_idx < m_batch_size; mdl_idx++) {
++			for(int idx=0; idx<mdl_container->m_in_cnt; idx++) {
++				ret = FreeBuffers(mdl_id[mdl_idx], m_mdl_inbuf[idx]);
++				MLOGD("free batch_inbuf mdl_idx[%d], ret[%d]", mdl_idx, ret);
++			}
++
++			for(int idx=0; idx<mdl_container->m_out_cnt; idx++) {
++				ret = FreeBuffers(mdl_id[mdl_idx], m_mdl_outbuf[idx]);
++				MLOGD("free batch_outbuf mdl_idx[%d], ret[%d]", mdl_idx, ret);
++			}
++
++			ret = CloseModel(mdl_id[mdl_idx]);
++			mdl_id[mdl_idx] = INVALID_MODEL_ID;
++			MLOGD("close mdl_idx[%d], ret[%d]", mdl_idx, ret);
++		}
++
++		if (force_thread_done == false) {
++      force_thread_done = true;
++      for(int i = 0; i < MAX_INSTANCE; i++) {
++        inferece_start_cond[i].notify_one();
++        task_thread_executor[i].join();
++      }
++    }
++
++		MLOGD("Close done");
++		return true;
++	}
++
++	bool sbe1200::impl_shutdown()
++	{
++		int ret = Shutdown();
++		if (ret != RET_OK) {
++			MLOGE("fail to Shutdown");
++		}
++		MLOGD("Shutdown done");
++		return true;
++	}
++
++	bool sbe1200::initialize(mlperf_backend_configuration_t *configs)
++	{
++		int ret = Initialize();
++		if (ret != RET_OK) {
++			return false;
++		}
++
++		impl_parse_ext_attribute(configs);
++		return true;
++	}
++
++	bool sbe1200::open_model(const char* model_path, const char* accelerator)
++	{
++		int ret = 0;
++		pref_hw = (HwPreference)NPU_ONLY;
++		options.modelPreference = {{pref_hw, BOOST_MODE, {false, false}}, EDEN_NN_API};
++		options.priority = P_DEFAULT;
++		options.boundCore = NPU_UNBOUND;
++		/* for execution */
++		pref.mode = BOOST_MODE;
++		pref.hw = pref_hw;
++		for (int i = 0; i < MAX_INSTANCE; i++) {
++			mdl_id[i] = INVALID_MODEL_ID;
++		}
++
++		impl_load_model(model_path);
++		for(int mdl_idx=0; mdl_idx < MAX_INSTANCE && mdl_idx < m_batch_size; mdl_idx++) {
++			MLOGD("mdl_idx[%d], m_batch_size[%d]", mdl_idx, m_batch_size);
++
++			ret = OpenEdenModelFromMemory(MODEL_TYPE_IN_MEMORY_TFLITE,
++								reinterpret_cast<int8_t *>(m_mdl_buf), m_mdl_buf_len,
++								false, &mdl_id[mdl_idx], options);
++			if (ret != RET_OK) {
++				MLOGE("fail to open_model. ret = %d", ret);
++				return false;
++			}
++		}
++		return true;
++	}
++
++	bool sbe1200::set_model_buf()
++	{
++		int32_t buf_cnt = 0;
++		int ret = 0;
++		int inbuf_size = m_batch_size>1?MAX_INSTANCE:mdl_container->m_in_cnt;
++		int outbuf_size = m_batch_size>1?MAX_INSTANCE:mdl_container->m_out_cnt;
++
++		MLOGD("inbuf size[%d], outbuf size[%d]", inbuf_size, outbuf_size);
++
++		m_mdl_inbuf.resize(inbuf_size);
++		m_mdl_outbuf.resize(outbuf_size);
++
++		for (int32_t mdl_idx = 0; mdl_idx < MAX_INSTANCE && mdl_idx < m_batch_size; mdl_idx++) {
++			for(int idx=0; idx<mdl_container->m_in_cnt; idx++) {
++				ret = AllocateInputBuffers(mdl_id[mdl_idx], &m_mdl_inbuf[mdl_container->m_in_cnt*mdl_idx + idx], &buf_cnt);
++				if (ret != RET_OK) {
++					MLOGE("fail to alloc inbuf mdl_idx[%d], ret = %d", 0, ret);
++					return false;
++				}
++				MLOGD("m_mdl_inbuf[idx]->addr[%x], size[%d]", m_mdl_inbuf[mdl_container->m_in_cnt*mdl_idx + idx]->addr, m_mdl_inbuf[mdl_container->m_in_cnt*mdl_idx + idx]->size);
++			}
++			for(int idx=0; idx<mdl_container->m_out_cnt; idx++) {
++				ret = AllocateOutputBuffers(mdl_id[mdl_idx], &m_mdl_outbuf[mdl_container->m_out_cnt*mdl_idx + idx], &buf_cnt);
++				if (ret != RET_OK) {
++					MLOGE("fail to alloc outbuf mdl_idx[%d], ret = %d", 0, ret);
++					return false;
++				}
++				MLOGD("m_mdl_outbuf[idx]->addr[%x], size[%d]", m_mdl_outbuf[mdl_container->m_out_cnt*mdl_idx + idx]->addr, m_mdl_outbuf[mdl_container->m_out_cnt*mdl_idx + idx]->size);
++			}
++		}
++
++		MLOGD("m_mdl_inbuf.size[%d], m_mdl_outbuf.size[%d]", m_mdl_inbuf.size(), m_mdl_outbuf.size());
++		return true;
++	}
++
++	bool sbe1200::inference()
++	{
++		int ret = RET_OK;
++		if(m_batch_size == 1) {
++			requests[0].modelId = mdl_id[0];
++			requests[0].inputBuffers = m_mdl_inbuf[0];
++			requests[0].outputBuffers = m_mdl_outbuf[0];
++
++			ret = ExecuteModel(&requests[0], &requestId[0], pref);
++			if (callbacks[0].waitFor(&callbacks[0].requestId, requestId[0], EDEN_NN_TIMEOUT) < 0) {
++				ret = RET_ERROR_ON_RT_EXECUTE_MODEL;
++				MLOGE("fail to inference with ret[%d]", ret);
++			}
++		}
++		else {
++			for (int mdl_idx = 0; mdl_idx < MAX_INSTANCE; mdl_idx++) {
++					inferece_start_cond[mdl_idx].notify_one();
++				}
++
++				std::unique_lock<std::mutex> lock(inference_done_mtx);
++				inferece_done_cond.wait(lock);
++				inference_done_count = 0;
++		}
++		return true;
++	}
++
++  void sbe1200::impl_config_batch()
++  {
++    force_thread_done = false;
++    for(int mdl_idx = 0; mdl_idx < MAX_INSTANCE && mdl_idx < m_batch_size; mdl_idx++) {
++      task_thread_executor[mdl_idx] = std::thread(&sbe1200::impl_inference_thread, this, mdl_idx);
++    }
++		m_batch_buf = allocate_buf(mdl_container->m_outbuf_size * m_batch_size);
++  }
++
++	void sbe1200::config_request()
++	{
++		requests = new EdenRequest[MAX_INSTANCE];
++		callbacks = new EdenCallback[MAX_INSTANCE];
++		requestId = new addr_t[MAX_INSTANCE];
++
++		for (int idx = 0; idx < MAX_INSTANCE && idx < m_batch_size; idx++) {
++			callbacks[idx].notify = notify_f;
++			callbacks[idx].waitFor = wait_f;
++			callbacks[idx].requestId = INVALID_REQUEST_ID;
++			callbacks[idx].executionResult.inference.retCode = RET_OK;
++			requestId[idx] = INVALID_REQUEST_ID;
++			requests[idx].callback = &callbacks[idx];
++			requests[idx].hw = pref_hw;
++		}
++
++		if(m_batch_size > 1) {
++			impl_config_batch();
++		}
++	}
++
++	void sbe1200::set_inbuf(void* p, int batch_idx, int idx)
++	{
++		if(m_batch_size == 1) {
++			memcpy(m_mdl_inbuf[idx]->addr, p, mdl_container->m_inbuf_size);
++		}
++		else {
++			task_pool.push({p, (char*)(m_batch_buf) + batch_idx * mdl_container->m_outbuf_size});
++		}
++	}
++
++	void *sbe1200::allocate_buf(size_t size)
++	{
++		if(!size)
++			return nullptr;
++
++		void *ptr = std::malloc(size);
++		heap_mem[ptr]=ptr;
++		return ptr;
++	}
++
++	void sbe1200::release_buf(void *p)
++	{
++		if(heap_mem.find(p) != heap_mem.end()) {
++			heap_mem.erase(p);
++		}
++		std::free(p);
++		p = nullptr;
++	}
++
++	void sbe1200::clear()
++	{
++		impl_closeModel();
++		impl_shutdown();
++
++		m_mdl_buf_len=0;
++		det_lbl_boxes.clear();
++		det_lbl_indices.clear();
++    det_lbl_prob.clear();
++    det_num.clear();
++    det_lbl_boxes.shrink_to_fit();
++    det_lbl_indices.shrink_to_fit();
++    det_lbl_prob.shrink_to_fit();
++    det_num.shrink_to_fit();
++
++		m_batch_size = 0;
++		m_created = false;
++
++		while(!task_pool.empty()) {
++			task_pool.pop();
++		}
++
++		for(auto elem : heap_mem) {
++      free(elem.second);
++    }
++		heap_mem.clear();
++
++		m_mdl_inbuf.clear();
++		m_mdl_inbuf.shrink_to_fit();
++
++		m_mdl_outbuf.clear();
++		m_mdl_outbuf.shrink_to_fit();
++
++		mdl_container->deinit();
++		mdl_container = nullptr;
++
++		delete[] requests;
++		delete[] callbacks;
++		delete[] requestId;		
++	}
++
++	void sbe1200::impl_parse_ext_attribute(mlperf_backend_configuration_t *configs)
++  {
++		if (configs->batch_size > 1) {
++			m_batch_size = configs->batch_size;
++		}
++
++    for (int i = 0; i < configs->count; ++i) {
++      if(strcmp(configs->keys[i], "i_type") == 0) {
++        if(strcmp(configs->values[i], "Int32") == 0) {
++          mdl_attr.m_inbuf_type = mlperf_data_t::Int32;
++        }
++        else {
++          mdl_attr.m_inbuf_type = mlperf_data_t::Uint8;
++        }
++      }
++      else if(strcmp(configs->keys[i], "o_type") == 0) {
++        if(strcmp(configs->values[i], "Float32") == 0) {
++          mdl_attr.m_outbuf_type = mlperf_data_t::Float32;
++        }
++        else {
++          mdl_attr.m_outbuf_type = mlperf_data_t::Uint8;
++        }
++      }
++    }
++  }
++
++	void sbe1200::impl_parse_mdl_attribute()
++  {
++		int32_t in_w, in_h, in_c, in_n;
++		GetInputBufferShape(mdl_id[0], 0, &in_w, &in_h, &in_c, &in_n);
++
++		int32_t out_w, out_h, out_c, out_n;
++		GetOutputBufferShape(mdl_id[0], 0, &out_w, &out_h, &out_c, &out_n);
++
++    mdl_attr.m_channel = in_c;
++    mdl_attr.m_width = in_w;
++    mdl_attr.m_height = in_h;
++
++    mdl_attr.m_inbuf_size = in_w*in_h*in_c*in_n;
++    mdl_attr.m_outbuf_size = out_w*out_h*out_c*out_n*mdl_attr.get_byte(mdl_attr.m_outbuf_type);
++  }
++
++	void sbe1200::attach_model_container()
++	{
++		impl_parse_mdl_attribute();
++
++		if(mdl_attr.m_inbuf_size == obj_od.get_buf_size()) {
++      mdl_container = &obj_od;
++			det_lbl_boxes = std::vector<float>(mdl_attr.m_outbuf_size/7);
++      det_lbl_indices = std::vector<float>(mdl_attr.m_outbuf_size/28);
++      det_lbl_prob = std::vector<float>(mdl_attr.m_outbuf_size/28);
++      det_num = std::vector<float>(1);
++    }
++    else if(mdl_attr.m_inbuf_size == obj_ic.get_buf_size()) {
++      mdl_container = &obj_ic;
++    }
++    else {
++      mdl_container = &obj_is;
++    }
++
++		mdl_attr.m_in_cnt = mdl_container->m_in_cnt;
++		mdl_attr.m_out_cnt = mdl_container->m_out_cnt;
++
++		mdl_attr.update(mdl_container);
++		mdl_attr.show();
++
++		mdl_container->init();
++	}
++} // sbe
++
++using namespace sbe;
++
++#ifdef __cplusplus
++extern "C" {
++#endif  // __cplusplus
++
++bool backend_create(const char *model_path, mlperf_backend_configuration_t *configs,
++                                        const char *native_lib_path)
++{
++  if (sbe_obj.m_created) {
++    sbe_obj.clear();
++  }
++	sbe_obj.m_mdl_buf_len = 0;
++  sbe_obj.m_created = true;
++    sbe_obj.m_batch_size = 1;
++
++	if (sbe_obj.initialize(configs) != true) {
++		return false;
++	}
++	if (sbe_obj.open_model(model_path, configs->accelerator) != true) {
++		return false;
++	}
++
++	sbe_obj.attach_model_container();
++	sbe_obj.set_model_buf();
++	sbe_obj.config_request();
++	return true;
++}
++
++int32_t backend_get_input_count()
++{
++  return sbe_obj.mdl_container->get_input_size();
++}
++
++mlperf_data_t backend_get_input_type(int32_t i)
++{
++  return sbe_obj.mdl_container->get_input_type(i);
++}
++
++mlperf_status_t backend_set_input(int32_t batchIndex, int32_t i, void* data)
++{
++  sbe_obj.set_inbuf(data, batchIndex, i);
++  return MLPERF_SUCCESS;
++}
++
++int32_t backend_get_output_count()
++{
++  return sbe_obj.mdl_container->get_output_size();
++}
++
++mlperf_data_t backend_get_output_type(int32_t i)
++{
++  return sbe_obj.mdl_container->get_output_type(i);
++}
++
++mlperf_status_t backend_issue_query()
++{
++  if (sbe_obj.inference()) {
++    return MLPERF_SUCCESS;
++  }
++  return MLPERF_FAILURE;
++}
++
++mlperf_status_t backend_get_output(uint32_t batch_idx, int32_t idx, void **data)
++{
++  if (sbe_obj.mdl_container->m_model_id == MOBILE_BERT) {
++    if (idx == 1) {
++      *data = sbe_obj.m_mdl_outbuf[0]->addr;
++    }
++    else if (idx == 0) {
++      *data = sbe_obj.m_mdl_outbuf[1]->addr;
++    }
++  }
++  else {
++    if (sbe_obj.mdl_container->m_model_id == OBJECT_DETECTION) {
++			float* buf = (float*)(sbe_obj.m_mdl_outbuf[0]->addr);
++			float det_idx = 0.0;
++			int det_cnt = 0;
++			int block_cnt = ((detection*)(sbe_obj.mdl_container))->det_block_cnt;
++			int block_size = ((detection*)(sbe_obj.mdl_container))->det_block_size;
++
++			for (int i=0, j=0; j<block_cnt; j++) {
++				det_idx = buf[j*block_size+1];
++				if(det_idx > 0) {
++					switch (idx) {
++						case 0:
++								sbe_obj.det_lbl_boxes[i++] = buf[j*block_size+4];
++								sbe_obj.det_lbl_boxes[i++] = buf[j*block_size+3];
++								sbe_obj.det_lbl_boxes[i++] = buf[j*block_size+6];
++								sbe_obj.det_lbl_boxes[i++] = buf[j*block_size+5];
++							break;
++						case 1:
++							sbe_obj.det_lbl_indices[j] = det_idx-1;
++						case 2:
++							sbe_obj.det_lbl_prob[j] = buf[j*block_size+2];
++						case 3:
++							det_cnt++;
++						default:
++							break;
++					}
++				}
++			}
++
++			switch (idx) {
++				case 0:
++					*data = (void *)(sbe_obj.det_lbl_boxes.data());
++					break;
++				case 1:
++					*data = (void *)(sbe_obj.det_lbl_indices.data());
++					break;
++				case 2:
++					*data = (void *)(sbe_obj.det_lbl_prob.data());
++					break;
++				case 3:
++					sbe_obj.det_num[0] = det_cnt;
++					*data = (void *)(sbe_obj.det_num.data());
++					memset(buf, 0, sizeof(float) * block_size * block_cnt);
++					break;
++				default:
++					break;
++			}
++    }
++    else if (sbe_obj.mdl_container->m_model_id == IMAGE_SEGMENTATION) {
++      *data = (void*)(sbe_obj.m_mdl_outbuf[0]->addr);
++    }
++    else if (sbe_obj.mdl_container->m_model_id == IMAGE_CLASSIFICATION) {
++      uint8_t *buf;
++      if(sbe_obj.m_batch_size > 1)
++        buf = (uint8_t*)(sbe_obj.m_batch_buf);
++      else
++        buf = (uint8_t*)(sbe_obj.m_mdl_outbuf[0]->addr);
++			*data = (void*)(buf + sbe_obj.mdl_container->m_outbuf_size * batch_idx);
++    }
++  }
++  return MLPERF_SUCCESS;
++}
++
++void backend_convert_inputs(int bytes, int width, int height, uint8_t* data)
++{
++  std::vector<uint8_t>* data_uint8 = new std::vector<uint8_t>(bytes);
++  int blueOffset = 0;
++  int greenOffset = width * height;
++  int redOffset = width * height * 2;
++  int idx = 0;
++
++  for (int i = 0; i < height; i++) {
++    for (int j = 0; j < width; j++) {
++      (*data_uint8)[redOffset] = data[idx];
++      (*data_uint8)[greenOffset] = data[idx + 1];
++      (*data_uint8)[blueOffset] = data[idx + 2];
++      redOffset++;
++      greenOffset++;
++      blueOffset++;
++      idx = idx + 3;
++    }
++  }
++  memcpy(data, data_uint8->data(), sizeof(uint8_t) * bytes);
++  data_uint8->clear();
++  data_uint8->shrink_to_fit();
++  delete data_uint8;
++}
++
++void backend_delete()
++{
++  sbe_obj.clear();
++}
++
++void* backend_get_buffer(size_t size)
++{
++  return sbe_obj.allocate_buf(size);
++}
++
++void backend_release_buffer(void *p)
++{
++  sbe_obj.release_buf(p);
++}
++
++#ifdef __cplusplus
++}
++#endif  // __cplusplus
+\ No newline at end of file
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/enn_sdk/include/sbe2200.hpp b/mobile_back_samsung/cpp/sbe_backend/jni/enn_sdk/include/sbe2200.hpp
+new file mode 100755
+index 0000000..7ddbc00
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/enn_sdk/include/sbe2200.hpp
+@@ -0,0 +1,124 @@
++/* Copyright 2020 The MLPerf Authors. All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++
++#ifndef SBE2200_H_
++#define SBE2200_H_
++
++/**
++ * @file sbe2200.hpp
++ * @brief samsung backend for exynos 2200.
++ * @date 2022-01-04
++ * @author soobong Huh (soobong.huh@samsung.com)
++ */
++
++#include <memory>
++#include <string>
++#include <vector>
++#include <unistd.h>
++#include <fstream>
++#include <iomanip>
++#include <iostream>
++#include <queue>
++#include <sstream>
++#include <utility>
++#include <cstdio>
++#include <cstdlib>
++#include <android/log.h>
++#include <thread>
++#include <unordered_map>
++#include <stdint.h>
++#include "client/enn_api-public.hpp"
++#include "client/enn_api-type.h"
++#include "sbe_model_container.hpp"
++#include "type.h"
++#include "sbe_utils.hpp"
++
++namespace sbe {
++using namespace enn::api;
++class sbe2200 {
++  public:
++  const std::string name = "sbe2200";
++  int m_batch_size;
++
++  /* declaration of buffers for model */
++  std::vector<void*> m_inbuf;
++  std::vector<void*> m_outbuf;
++  std::vector<void*> m_batch_buf;
++
++  std::vector<float> det_lbl_boxes;
++  std::vector<float> det_lbl_indices;
++  std::vector<float> det_lbl_prob;
++  std::vector<float> det_num;
++
++  bool m_created;
++  model_container *mdl_container;
++
++  std::queue<std::pair<void*, void*>> task_pool;
++  std::unordered_map<void*, EnnBufferPtr> mapped_mem;
++
++  void impl_set_buffer(int, void *, enn_buf_dir_e, int);
++  void impl_commit_buffer(int);
++
++  EnnBufferPtr impl_get_memobj(void *);  
++  bool impl_closeModel();
++  bool impl_shutdown();
++
++  /* external method */
++  void attach_model_container();
++  void impl_parse_mdl_attribute();
++  void impl_parse_ext_attribute(mlperf_backend_configuration_t *);
++
++  bool initialize(mlperf_backend_configuration_t *);
++  bool open_model(const char*);
++  bool inference();
++
++  void clear();
++  void *allocate_buf(size_t);
++  void release_buf(void *);
++
++  void config_instance();
++  void impl_config_batch();
++  void set_inbuf(void *, int , int);
++
++  bool task_deque(int idx, std::pair<void*, void*>&);
++  void impl_inference_thread(int);
++
++  sbe2200() : m_batch_size(0), m_created(false) {}
++
++};  // sbe2200
++
++#ifdef __cplusplus
++extern "C" {
++#endif  // __cplusplus
++
++  bool backend_create(const char *, mlperf_backend_configuration_t *, const char *);
++  mlperf_status_t backend_get_output(uint32_t, int32_t, void **);
++  int32_t backend_get_input_count();
++  mlperf_data_t backend_get_input_type(int32_t);
++  mlperf_status_t backend_set_input(int32_t, int32_t, void*);
++  int32_t backend_get_output_count();
++  mlperf_data_t backend_get_output_type(int32_t);
++  mlperf_status_t backend_issue_query();
++  void backend_convert_inputs(int, int, int, uint8_t*);
++  void backend_delete();
++  void *backend_get_buffer(size_t);
++  void backend_release_buffer(void*);
++
++#ifdef __cplusplus
++}
++#endif  // __cplusplus
++
++} // namespace sbe;
++#endif
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/enn_sdk/sbe2200.cc b/mobile_back_samsung/cpp/sbe_backend/jni/enn_sdk/sbe2200.cc
+new file mode 100755
+index 0000000..cfaa5a5
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/enn_sdk/sbe2200.cc
+@@ -0,0 +1,581 @@
++#include "sbe2200.hpp"
++
++namespace sbe {
++  using namespace sbeID2200;
++  static sbe2200 sbe_obj;
++
++  std::condition_variable inferece_start_cond[MAX_INSTANCE];
++  std::condition_variable inferece_done_cond;
++  std::mutex inference_start_mtx[MAX_INSTANCE];
++  std::mutex inference_done_mtx;
++  std::mutex task_deque_mtx;
++
++  std::atomic<bool> force_thread_done{true};
++  std::atomic<int> inference_done_count{0};
++  std::thread task_thread_executor[MAX_INSTANCE];
++  EnnModelId mdl_id[MAX_INSTANCE] = {INVALID_MDL,};
++
++  bool sbe2200::task_deque(int mdl_idx, std::pair<void*, void*>&node)
++  {
++    std::unique_lock<std::mutex> lock(task_deque_mtx);
++    if(task_pool.size()==0) return false;
++    MLOGD("remained node[%lu]", task_pool.size());
++    node = task_pool.front();
++    MLOGD("mld[%d] taken node[%p, %p]", mdl_idx, node.first, node.second);
++    task_pool.pop();
++    return true;
++  }
++
++  void sbe2200::impl_inference_thread(int mdl_idx)
++  {
++    if (EnnSetExecMsgAlwaysOff() != ENN_RET_SUCCESS) {
++      MLOGD("fail to turn off execute log for thread");
++    }
++    int inbuf_size = mdl_container->m_inbuf_size;
++    int outbuf_size = mdl_container->m_outbuf_size;
++
++    while(true) {
++      std::unique_lock<std::mutex> lock(inference_start_mtx[mdl_idx]);
++      inferece_start_cond[mdl_idx].wait(lock, [this]{ return (!task_pool.empty() || force_thread_done);});
++      if(force_thread_done) return;
++
++      std::pair<void*, void*> buf;
++      while(task_deque(mdl_idx, buf)) {
++        memcpy(m_inbuf[mdl_idx], buf.first, inbuf_size);
++        EnnReturn ret = EnnExecuteModel(mdl_id[mdl_idx]);
++        if (ret != ENN_RET_SUCCESS) {
++          MLOGE("fail to execute model");
++        }
++        memcpy(buf.second, m_batch_buf[mdl_idx], outbuf_size);
++      }
++      inference_done_count++;
++      if(inference_done_count == MAX_INSTANCE) {
++          inferece_done_cond.notify_one();
++      }
++    }
++  }
++
++  bool sbe2200::impl_closeModel()
++  {
++    EnnReturn ret = ENN_RET_SUCCESS;
++    for (int i = 0; i < MAX_INSTANCE; i++) {
++      if (mdl_id[i] == INVALID_MDL)
++        continue;
++
++      ret = EnnCloseModel(mdl_id[i]);
++      if (ret != ENN_RET_SUCCESS) {
++        MLOGE("fail to Close model #%d", i);
++      }
++
++      mdl_id[i] = INVALID_MDL;
++    }
++
++    if (force_thread_done == false) {
++      force_thread_done = true;
++      for(int i = 0; i < MAX_INSTANCE; i++) {
++        inferece_start_cond[i].notify_one();
++        task_thread_executor[i].join();  // wait thread done
++      }
++    }
++
++    if(mdl_container->b_enable_fpc) {
++      ret = EnnUnsetFastIpc();
++    }
++    return ret;
++  }
++
++  bool sbe2200::impl_shutdown()
++  {
++    EnnReturn ret = EnnDeinitialize();
++    if (ret != ENN_RET_SUCCESS) {
++      MLOGE("fail to Deinitialize");
++    }
++    return true;
++  }
++  
++  void sbe2200::impl_set_buffer(int mdl_idx, void *buf, enn_buf_dir_e dir, int idx)
++  {
++    EnnBufferPtr p_memobj = impl_get_memobj(buf);
++    EnnSetBufferByIndex(mdl_id[mdl_idx], dir, idx, p_memobj);
++  }
++
++  void sbe2200::impl_commit_buffer(int mdl_idx)
++  {
++    if(!mdl_container->b_enable_lazy) {
++      EnnBufferCommit(mdl_id[mdl_idx]);
++    }
++  }
++
++  EnnBufferPtr sbe2200::impl_get_memobj(void *p)
++  {
++    return mapped_mem[p];
++  }
++
++  bool sbe2200::initialize(mlperf_backend_configuration_t *configs) {
++    EnnReturn ret = EnnInitialize();
++    if (ret != ENN_RET_SUCCESS) {
++      MLOGE("fail to EnnInitialize");
++      return false;
++    }
++
++    impl_parse_ext_attribute(configs);
++    return true;
++  }
++
++  bool sbe2200::open_model(const char* model_path) {
++    EnnReturn ret = ENN_RET_SUCCESS;
++    for (int i = 0; i < MAX_INSTANCE; i++) {
++      mdl_id[i] = INVALID_MDL;
++    }
++
++    ret = EnnSetPreferencePerfMode(ENN_PREF_MODE_CUSTOM);
++    if (ret != ENN_RET_SUCCESS) {
++      MLOGE("fail to set perf mode. But test continues");
++    }
++    ret = EnnSetPreferencePresetId(mdl_attr.m_preset_id);
++    if (ret != ENN_RET_SUCCESS) {
++      MLOGE("fail to set preset id. But test continues");
++    }
++    ret = EnnSetExecMsgAlwaysOff();
++    if (ret != ENN_RET_SUCCESS) {
++      MLOGE("fail to turn of execute log. But test continues");
++    }
++    for(int mdl_idx = 0; mdl_idx < MAX_INSTANCE && mdl_idx < m_batch_size; mdl_idx++) {
++      ret = EnnOpenModel(model_path, &mdl_id[mdl_idx]);
++      if (ret != ENN_RET_SUCCESS) {
++        MLOGE("fail to Open model #%d", mdl_idx);
++        return false;
++      }
++    }
++    return true;
++  }
++
++  bool sbe2200::inference() {
++    if(mdl_container->b_enable_lazy) {
++      for(int mdl_idx = 0; mdl_idx < MAX_INSTANCE && mdl_idx < m_batch_size; mdl_idx++) {
++        EnnBufferCommit(mdl_id[mdl_idx]);
++      }
++      mdl_container->unset_lazy();
++    }
++
++    EnnReturn ret = ENN_RET_SUCCESS;
++    if (m_batch_size == 1) {
++      if(mdl_container->b_enable_fpc) {
++        ret = EnnExecuteModelFastIpc(mdl_id[0], mdl_container->m_freeze);
++      }
++      else {
++        ret = EnnExecuteModel(mdl_id[0]);
++      }
++      MLOGD("Enn execute model with ret[%d]", ret);
++      if (ret != ENN_RET_SUCCESS) {
++        MLOGE("fail to Execute model for single batch");
++        return false;
++      }
++      return true;
++    }
++    else {
++      for (int mdl_idx = 0; mdl_idx < MAX_INSTANCE; mdl_idx++) {
++        inferece_start_cond[mdl_idx].notify_one();
++      }
++      std::unique_lock<std::mutex> lock(inference_done_mtx);
++      inferece_done_cond.wait(lock);
++      inference_done_count = 0;
++    }
++    return true;
++  }
++
++  void sbe2200::impl_config_batch()
++  {
++    force_thread_done = false;
++    for(int mdl_idx = 0; mdl_idx < MAX_INSTANCE && mdl_idx < m_batch_size; mdl_idx++) {
++      task_thread_executor[mdl_idx] = std::thread(&sbe2200::impl_inference_thread, this, mdl_idx);
++    }
++    void *ptr = allocate_buf(mdl_container->m_outbuf_size * m_batch_size);
++    m_outbuf.push_back(ptr);
++  }
++
++  void sbe2200::config_instance()
++  {
++    void *ptr = nullptr;
++    for (int32_t mdl_idx = 0; mdl_idx < MAX_INSTANCE && mdl_idx < m_batch_size; mdl_idx++) {
++      for(int idx=0; idx<mdl_container->m_in_cnt; idx++) {
++        ptr = allocate_buf(mdl_container->m_inbuf_size);
++        m_inbuf.push_back(ptr);
++        impl_set_buffer(mdl_idx, ptr, ENN_DIR_IN, idx);
++      }
++      for(int idx=0; idx<mdl_container->m_out_cnt; idx++) {
++        ptr = allocate_buf(mdl_container->m_outbuf_size);
++        if(m_batch_size > 1) m_batch_buf.push_back(ptr);
++        else m_outbuf.push_back(ptr);
++        impl_set_buffer(mdl_idx, ptr, ENN_DIR_OUT, idx);
++      }
++      impl_commit_buffer(mdl_idx);
++    }
++    if(m_batch_size > 1) {
++      impl_config_batch();
++    }
++  }
++
++  void sbe2200::set_inbuf(void* p, int batch_idx, int idx)
++  {
++    if(m_batch_size == 1) {
++      memcpy(m_inbuf[idx], p, mdl_container->m_inbuf_size);
++    }
++    else {
++      task_pool.push({p, (char*)m_outbuf[0] + batch_idx * mdl_container->m_outbuf_size});
++    }
++  }
++
++  void *sbe2200::allocate_buf(size_t size)
++  {
++    if(!size)
++      return nullptr;
++
++    EnnBufferPtr ptr;
++    EnnReturn ret = EnnCreateBuffer(&ptr, size);
++    if(ret != ENN_RET_SUCCESS) {
++      MLOGE("fail to alloc buf");
++    }
++    mapped_mem[ptr->va] = ptr;
++    return ptr->va;
++  }
++
++  void sbe2200::release_buf(void *p)
++  {
++    /* release heap buffer */
++    if(mapped_mem.find(p) == mapped_mem.end()) {
++        std::free(p);
++        p = nullptr;
++    }
++    else {
++      /* release ion buffer */
++      EnnReleaseBuffer(mapped_mem[p]);
++      mapped_mem.erase(p);
++    }
++  }
++
++  void sbe2200::clear()
++  {
++    impl_closeModel();
++    impl_shutdown();
++
++    det_lbl_boxes.clear();
++    det_lbl_indices.clear();
++    det_lbl_prob.clear();
++    det_num.clear();
++    det_lbl_boxes.shrink_to_fit();
++    det_lbl_indices.shrink_to_fit();
++    det_lbl_prob.shrink_to_fit();
++    det_num.shrink_to_fit();
++
++    m_batch_size = 0;
++    m_created = false;
++
++    while(!task_pool.empty()) {
++      task_pool.pop();
++    }
++
++    for(auto elem : mapped_mem) {
++      EnnReleaseBuffer(elem.second);
++    }
++    mapped_mem.clear();
++
++    m_inbuf.clear();
++    m_inbuf.shrink_to_fit();
++    m_outbuf.clear();
++    m_outbuf.shrink_to_fit();
++    m_batch_buf.clear();
++    m_batch_buf.shrink_to_fit();
++
++    mdl_container->deinit();
++    mdl_container = nullptr;
++  }
++
++  void sbe2200::impl_parse_ext_attribute(mlperf_backend_configuration_t *configs)
++  {
++    if (configs->batch_size > 1) {
++      m_batch_size = configs->batch_size;
++    }
++    for (int i = 0; i < configs->count; ++i) {
++      if (strcmp(configs->keys[i], "preset") == 0) {
++        mdl_attr.m_preset_id = std::stoul(configs->values[i]);
++      }
++      else if(strcmp(configs->keys[i], "i_type") == 0) {
++        if(strcmp(configs->values[i], "Int32") == 0) {
++          mdl_attr.m_inbuf_type = mlperf_data_t::Int32;
++        }
++        else {
++          mdl_attr.m_inbuf_type = mlperf_data_t::Uint8;
++        }
++      }
++      else if(strcmp(configs->keys[i], "o_type") == 0) {
++        if(strcmp(configs->values[i], "Float32") == 0) {
++          mdl_attr.m_outbuf_type = mlperf_data_t::Float32;
++        }
++        else {
++          mdl_attr.m_outbuf_type = mlperf_data_t::Uint8;
++        }
++      }
++      else if(strcmp(configs->keys[i], "fpc_mode") == 0) {
++        if(strcmp(configs->values[i], "true") == 0) {
++          mdl_attr.b_enable_fpc = true;
++        }
++        else {
++          mdl_attr.b_enable_fpc = false;
++        }
++      }
++      else if(strcmp(configs->keys[i], "freezing") == 0) {
++        mdl_attr.m_freeze = std::stoul(configs->values[i]);
++      }
++      else if(strcmp(configs->keys[i], "lazy_mode") == 0) {
++        if(strcmp(configs->values[i], "true") == 0) {
++          mdl_attr.b_enable_lazy = true;
++        }
++        else {
++          mdl_attr.b_enable_lazy = false;
++        }
++      }
++    }
++  }
++
++  void sbe2200::impl_parse_mdl_attribute()
++  {
++    NumberOfBuffersInfo buf_info;
++    EnnGetBuffersInfo(&buf_info, mdl_id[0]);
++
++    mdl_attr.m_in_cnt = buf_info.n_in_buf;
++    mdl_attr.m_out_cnt = buf_info.n_out_buf;
++
++    EnnBufferInfo in_buf_info, out_buf_info;
++    EnnGetBufferInfoByIndex(&in_buf_info, mdl_id[0], ENN_DIR_IN, 0);
++    EnnGetBufferInfoByIndex(&out_buf_info, mdl_id[0], ENN_DIR_OUT, 0);
++
++    mdl_attr.m_channel = in_buf_info.channel;
++    mdl_attr.m_width = in_buf_info.width;
++    mdl_attr.m_height = in_buf_info.height;
++
++    mdl_attr.m_inbuf_size = in_buf_info.size;
++    mdl_attr.m_outbuf_size = out_buf_info.size;
++  }
++
++  void sbe2200::attach_model_container()
++  {
++    impl_parse_mdl_attribute();
++
++    if(mdl_attr.m_inbuf_size == obj_od.get_buf_size()) {
++      mdl_container = &obj_od;
++      det_lbl_boxes = std::vector<float>(mdl_attr.m_outbuf_size/7);
++      det_lbl_indices = std::vector<float>(mdl_attr.m_outbuf_size/28);
++      det_lbl_prob = std::vector<float>(mdl_attr.m_outbuf_size/28);
++      det_num = std::vector<float>(1);
++    }
++    else if(mdl_attr.m_inbuf_size == obj_ic.get_buf_size()) {
++      if(m_batch_size > 1) {
++        mdl_container = &obj_ic_offline;
++      }
++      else {
++        mdl_container = &obj_ic;
++      }
++    }
++    else if(mdl_attr.m_inbuf_size == obj_is.get_buf_size()) {
++      mdl_container = &obj_is;
++    }
++    else {
++      mdl_container = &obj_bert;
++    }
++
++    mdl_attr.update(mdl_container);
++    mdl_attr.show();
++
++    mdl_container->init();
++    if(mdl_container->b_enable_fpc) {
++      EnnReturn ret = EnnSetFastIpc();
++      MLOGD("Enable Fast IPC mode with ret[%d]", ret);
++    }
++  }
++} // sbe
++
++using namespace sbe;
++
++#ifdef __cplusplus
++extern "C" {
++#endif  // __cplusplus
++
++bool backend_create(const char *model_path, mlperf_backend_configuration_t *configs,
++                                        const char *native_lib_path)
++{
++  if (sbe_obj.m_created) {
++    sbe_obj.clear(); 
++  }
++  sbe_obj.m_created = true;
++  sbe_obj.m_batch_size = 1;
++
++  if (sbe_obj.initialize(configs) != true) {
++    return false;
++  }
++
++  if (sbe_obj.open_model(model_path) != true) {
++    return false;
++  }
++
++  sbe_obj.attach_model_container();
++  sbe_obj.config_instance();
++  usleep(1000000);
++  return true;
++}
++
++int32_t backend_get_input_count()
++{
++  return sbe_obj.mdl_container->get_input_size();
++}
++
++mlperf_data_t backend_get_input_type(int32_t i)
++{
++  return sbe_obj.mdl_container->get_input_type(i);
++}
++
++mlperf_status_t backend_set_input(int32_t batchIndex, int32_t i, void* data)
++{
++  sbe_obj.set_inbuf(data, batchIndex, i);
++  return MLPERF_SUCCESS;
++}
++
++int32_t backend_get_output_count()
++{
++  return sbe_obj.mdl_container->get_output_size();
++}
++
++mlperf_data_t backend_get_output_type(int32_t i)
++{
++  return sbe_obj.mdl_container->get_output_type(i);
++}
++
++mlperf_status_t backend_issue_query()
++{  
++  if (sbe_obj.inference()) {
++    return MLPERF_SUCCESS;
++  }
++  return MLPERF_FAILURE;
++}
++
++mlperf_status_t backend_get_output(uint32_t batch_idx, int32_t idx, void** data)
++{  
++  if(sbe_obj.mdl_container->m_model_id == MOBILE_BERT) {
++    if (idx == 1) {
++      *data = sbe_obj.m_outbuf[0];
++    }
++    else if (idx == 0) {
++      *data = (void*)(sbe_obj.m_outbuf[1]);
++    }
++  }
++  else if (sbe_obj.mdl_container->m_model_id == OBJECT_DETECTION) {
++    float* buf = (float*)(sbe_obj.m_outbuf[0]);
++    float det_idx = 0.0;
++    int det_cnt = 0;
++    int block_cnt = ((detection*)(sbe_obj.mdl_container))->det_block_cnt;
++    int block_size = ((detection*)(sbe_obj.mdl_container))->det_block_size;
++
++    for (int i=0, j=0; j<block_cnt; j++) {
++				det_idx = buf[j*block_size+1];
++				if(det_idx > 0) {
++					switch (idx) {
++						case 0:
++								sbe_obj.det_lbl_boxes[i++] = buf[j*block_size+4];
++								sbe_obj.det_lbl_boxes[i++] = buf[j*block_size+3];
++								sbe_obj.det_lbl_boxes[i++] = buf[j*block_size+6];
++								sbe_obj.det_lbl_boxes[i++] = buf[j*block_size+5];
++							break;
++						case 1:
++							sbe_obj.det_lbl_indices[j] = det_idx-1;
++						case 2:
++							sbe_obj.det_lbl_prob[j] = buf[j*block_size+2];
++						case 3:
++							det_cnt++;
++						default:
++							break;
++					}
++				}
++			}
++
++			switch (idx) {
++				case 0:
++					*data = (void *)(sbe_obj.det_lbl_boxes.data());
++					break;
++				case 1:
++					*data = (void *)(sbe_obj.det_lbl_indices.data());
++					break;
++				case 2:
++					*data = (void *)(sbe_obj.det_lbl_prob.data());
++					break;
++				case 3:
++					sbe_obj.det_num[0] = det_cnt;
++					*data = (void *)(sbe_obj.det_num.data());
++					memset(buf, 0, sizeof(float) * block_size * block_cnt);
++					break;
++				default:
++					break;
++			}
++  } else if (sbe_obj.mdl_container->m_model_id == IMAGE_SEGMENTATION) {
++    *data = (void *)(sbe_obj.m_outbuf[0]);
++  } else if (sbe_obj.mdl_container->m_model_id == IMAGE_CLASSIFICATION) {
++    uint8_t* buf = (uint8_t*)(sbe_obj.m_outbuf[0]);
++    *data = (void*)(buf + sbe_obj.mdl_container->m_outbuf_size * batch_idx);
++  }
++  return MLPERF_SUCCESS;
++}
++
++void backend_convert_inputs(int bytes, int width, int height, uint8_t* data)
++{
++  std::vector<uint8_t>* data_uint8 = new std::vector<uint8_t>(bytes);
++  int blueOffset = 0;
++  int greenOffset = 0;
++  int redOffset = 0;
++  int idx = 0;
++
++  if(sbe_obj.mdl_container->m_model_id == IMAGE_SEGMENTATION) {
++    redOffset = 0;
++    greenOffset = width * height;
++    blueOffset = width * height * 2;
++  }
++  else {
++    blueOffset = 0;
++    greenOffset = width * height;
++    redOffset = width * height * 2;
++  }
++
++  for (int i = 0; i < height; i++) {
++    for (int j = 0; j < width; j++) {
++      (*data_uint8)[redOffset] = data[idx];
++      (*data_uint8)[greenOffset] = data[idx + 1];
++      (*data_uint8)[blueOffset] = data[idx + 2];
++      redOffset++;
++      greenOffset++;
++      blueOffset++;
++      idx = idx + 3;
++    }
++  }
++
++  memcpy(data, data_uint8->data(), sizeof(uint8_t) * bytes);
++  data_uint8->clear();
++  data_uint8->shrink_to_fit();
++  delete data_uint8;
++}
++
++void backend_delete()
++{
++   sbe_obj.clear();
++}
++
++void *backend_get_buffer(size_t size)
++{
++  return sbe_obj.allocate_buf(size);
++}
++
++void backend_release_buffer(void *p)
++{
++  sbe_obj.release_buf(p);
++}
++
++#ifdef __cplusplus
++}
++#endif  // __cplusplus
+\ No newline at end of file
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/include/backend_c.h b/mobile_back_samsung/cpp/sbe_backend/jni/include/backend_c.h
+new file mode 100755
+index 0000000..9bb2d85
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/include/backend_c.h
+@@ -0,0 +1,82 @@
++/* Copyright 2020 The MLPerf Authors. All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#ifndef MLPERF_C_BACKEND_C_H_
++#define MLPERF_C_BACKEND_C_H_
++
++#include <stdint.h>
++
++#include "type.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif  // __cplusplus
++
++// Should return true if current hardware is supported.
++bool mlperf_backend_matches_hardware(const char** not_allowed_message,
++                                     const char** settings,
++                                     const mlperf_device_info_t* device_info);
++
++// Create a new backend and return the pointer to it.
++mlperf_backend_ptr_t mlperf_backend_create(
++    const char* model_path, mlperf_backend_configuration_t* configs,
++    const char* native_lib_path);
++
++// Vendor name who create this backend.
++const char* mlperf_backend_vendor_name(mlperf_backend_ptr_t backend_ptr);
++
++// Return the name of this backend.
++const char* mlperf_backend_name(mlperf_backend_ptr_t backend_ptr);
++
++// Destroy the backend pointer and its data.
++void mlperf_backend_delete(mlperf_backend_ptr_t backend_ptr);
++
++// Run the inference for a sample.
++mlperf_status_t mlperf_backend_issue_query(mlperf_backend_ptr_t backend_ptr);
++// Flush the staged queries immediately.
++mlperf_status_t mlperf_backend_flush_queries(mlperf_backend_ptr_t backend_ptr);
++
++// Return the number of inputs of the model.
++int32_t mlperf_backend_get_input_count(mlperf_backend_ptr_t backend_ptr);
++// Return the type of the ith input.
++mlperf_data_t mlperf_backend_get_input_type(mlperf_backend_ptr_t backend_ptr,
++                                            int32_t i);
++// Set the data for ith input, of batchIndex'th batch
++mlperf_status_t mlperf_backend_set_input(mlperf_backend_ptr_t backend_ptr,
++                                         int32_t batchIndex, int32_t i,
++                                         void* data);
++
++// Return the number of outputs from the model.
++int32_t mlperf_backend_get_output_count(mlperf_backend_ptr_t backend_ptr);
++// Return the type of ith output.
++mlperf_data_t mlperf_backend_get_output_type(mlperf_backend_ptr_t backend_ptr,
++                                             int32_t i);
++// Get the data from ith output.
++mlperf_status_t mlperf_backend_get_output(mlperf_backend_ptr_t backend_ptr,
++                                          uint32_t batchIndex, int32_t i,
++                                          void** data);
++
++// Optional functions
++void mlperf_backend_convert_inputs(mlperf_backend_ptr_t backend_ptr, int bytes,
++                                   int width, int height, uint8_t* data);
++
++void *mlperf_backend_get_buffer(size_t size);
++
++void mlperf_backend_release_buffer(void *p);
++
++#ifdef __cplusplus
++}
++#endif  // __cplusplus
++
++#endif  // MLPERF_C_BACKEND_C_H_
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_config.hpp b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_config.hpp
+new file mode 100644
+index 0000000..722ba28
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_config.hpp
+@@ -0,0 +1,466 @@
++/* Copyright 2020 The MLPerf Authors. All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#include <string>
++
++#ifndef SBE_CONFIG_H
++#define SBE_CONFIG_H
++
++/**
++ * @file sbe_config.hpp
++ * @brief description of benchmark_setting for samsung backend core
++ * @date 2022-01-04
++ * @author soobong Huh (soobong.huh@samsung.com)
++ */
++
++namespace sbe {
++
++const std::string sbe2200_config = R"SETTINGS(
++common_setting {
++  id: "num_threads"
++  name: "Number of threads"
++  value {
++    value: "4"
++    name: "4 threads"
++  }
++  acceptable_value {
++    value: "1"
++    name: "Single thread"
++  }
++  acceptable_value {
++    value: "2"
++    name: "2 threads"
++  }
++  acceptable_value {
++    value: "4"
++    name: "4 threads"
++  }
++  acceptable_value {
++    value: "8"
++    name: "8 threads"
++  }
++  acceptable_value {
++    value: "16"
++    name: "16 threads"
++  }
++}
++
++common_setting {
++  id: "configuration"
++  name: "configuration"
++  value {
++    value: "Samsung's Exynos Neural Network SDK running\non Exynos 990 mobile processor."
++    name: "Samsung Exynos"
++  }
++  acceptable_value {
++    value: "Samsung's Exynos Neural Network SDK running\non Exynos 990 mobile processor."
++    name: "Samsung Exynos"
++  }
++}
++
++common_setting {
++  id: "share_results"
++  name: "Share results"
++  value {
++    value: "0"
++    name: "false"
++  }
++  acceptable_value {
++    value: "1"
++    name: "true"
++  }
++  acceptable_value {
++    value: "0"
++    name: "false"
++  }
++}
++
++common_setting {
++  id: "cooldown"
++  name: "Cooldown"
++  value {
++    value: "0"
++    name: "false"
++  }
++  acceptable_value {
++    value: "1"
++    name: "true"
++  }
++  acceptable_value {
++    value: "0"
++    name: "false"
++  }
++}
++
++benchmark_setting {
++  benchmark_id: "IC_tpu_uint8"
++  accelerator: "samsung npu"
++  accelerator_desc: "NPU"
++  configuration: "Samsung Exynos"
++  custom_setting {
++    id: "mode"
++    value: "3"
++  }
++  custom_setting {
++    id: "preset"
++    value: "1007"
++  }
++  custom_setting {
++    id: "i_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Float32"
++  }
++  custom_setting {
++    id: "fpc_mode"
++    value: "true"
++  }
++  custom_setting {
++    id: "freezing"
++    value: "200"
++  }
++  custom_setting {
++    id: "lazy_mode"
++    value: "true"
++  }
++  src: "/sdcard/MLPerf_sideload/ic_single_fence.nnc"
++}
++
++benchmark_setting {
++  benchmark_id: "IS_uint8"
++  accelerator: "samsung npu"
++  accelerator_desc: "NPU"
++  configuration: "Samsung Exynos"
++  custom_setting {
++    id: "mode"
++    value: "3"
++  }
++  custom_setting {
++    id: "preset"
++    value: "1004"
++  }
++  custom_setting {
++    id: "i_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "fpc_mode"
++    value: "false"
++  }
++  custom_setting {
++    id: "freezing"
++    value: "0"
++  }
++  custom_setting {
++    id: "lazy_mode"
++    value: "false"
++  }
++  src: "/sdcard/MLPerf_sideload/is.nnc"
++}
++
++benchmark_setting {
++  benchmark_id: "SM_uint8"
++  accelerator: "samsung npu"
++  accelerator_desc: "NPU"
++  configuration: "Samsung Exynos"
++  custom_setting {
++    id: "mode"
++    value: "3"
++  }
++  custom_setting {
++    id: "preset"
++    value: "1004"
++  }
++  custom_setting {
++    id: "i_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "fpc_mode"
++    value: "false"
++  }
++  custom_setting {
++    id: "freezing"
++    value: "0"
++  }
++  custom_setting {
++    id: "lazy_mode"
++    value: "false"
++  }
++  src: "/sdcard/MLPerf_sideload/sm_uint8.nnc"
++}
++
++benchmark_setting {
++  benchmark_id: "OD_uint8"
++  accelerator: "samsung npu"
++  accelerator_desc: "NPU"
++  configuration: "Samsung Exynos"
++  custom_setting {
++    id: "mode"
++    value: "3"
++  }
++  custom_setting {
++    id: "preset"
++    value: "1008"
++  }
++  custom_setting {
++    id: "i_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Float32"
++  }
++  custom_setting {
++    id: "fpc_mode"
++    value: "true"
++  }
++  custom_setting {
++    id: "freezing"
++    value: "200"
++  }
++  custom_setting {
++    id: "lazy_mode"
++    value: "true"
++  }
++  src: "/sdcard/MLPerf_sideload/od_fence.nnc"
++}
++
++benchmark_setting {
++  benchmark_id: "LU_gpu_float32"
++  accelerator: "gpu"
++  accelerator_desc: "gpu"
++  configuration: "Samsung Exynos"
++  custom_setting {
++    id: "mode"
++    value: "3"
++  }
++  custom_setting {
++    id: "preset"
++    value: "1000"
++  }
++  custom_setting {
++    id: "i_type"
++    value: "Int32"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Float32"
++  }
++  custom_setting {
++    id: "fpc_mode"
++    value: "false"
++  }
++  custom_setting {
++    id: "freezing"
++    value: "0"
++  }
++  custom_setting {
++    id: "lazy_mode"
++    value: "false"
++  }
++  src: "/sdcard/MLPerf_sideload/mobile_bert_gpu.nnc"
++}
++
++benchmark_setting {
++  benchmark_id: "IC_tpu_uint8_offline"
++  accelerator: "samsung npu"
++  accelerator_desc: "npu"
++  configuration: "Samsung Exynos"
++  batch_size: 8192
++  custom_setting {
++    id: "scenario"
++    value: "offline"
++  }
++  custom_setting {
++    id: "mode"
++    value: "1"
++  }
++  custom_setting {
++    id: "preset"
++    value: "1002"
++  }
++  custom_setting {
++    id: "i_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Float32"
++  }
++  custom_setting {
++    id: "fpc_mode"
++    value: "false"
++  }
++  custom_setting {
++    id: "freezing"
++    value: "0"
++  }
++  custom_setting {
++    id: "lazy_mode"
++    value: "false"
++  }
++  src: "/sdcard/MLPerf_sideload/ic_offline.nnc"
++})SETTINGS";
++
++const std::string sbe1200_config = R"SETTINGS(
++common_setting {
++  id: "num_threads"
++  name: "Number of threads"
++  value {
++    value: "4"
++    name: "4 threads"
++  }
++  acceptable_value {
++    value: "1"
++    name: "Single thread"
++  }
++  acceptable_value {
++    value: "2"
++    name: "2 threads"
++  }
++  acceptable_value {
++    value: "4"
++    name: "4 threads"
++  }
++  acceptable_value {
++    value: "8"
++    name: "8 threads"
++  }
++  acceptable_value {
++    value: "16"
++    name: "16 threads"
++  }
++}
++
++common_setting {
++  id: "configuration"
++  name: "configuration"
++  value {
++    value: "Samsung's Exynos Neural Network SDK running\non Exynos 990 mobile processor."
++    name: "Samsung Exynos"
++  }
++}
++
++common_setting {
++  id: "share_results"
++  name: "Share results"
++  value {
++    value: "0"
++    name: "false"
++  }
++  acceptable_value {
++    value: "1"
++    name: "true"
++  }
++  acceptable_value {
++    value: "0"
++    name: "false"
++  }
++}
++
++common_setting {
++  id: "cooldown"
++  name: "Cooldown"
++  value {
++    value: "0"
++    name: "false"
++  }
++  acceptable_value {
++    value: "1"
++    name: "true"
++  }
++  acceptable_value {
++    value: "0"
++    name: "false"
++  }
++}
++
++benchmark_setting {
++  benchmark_id: "IS_uint8"
++  accelerator: "npu"
++  accelerator_desc: "npu"
++  configuration: "Samsung Exynos"
++  custom_setting {
++    id: "i_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Uint8"
++  }
++  src: "/sdcard/MLPerf_sideload/is.nnc"
++}
++
++benchmark_setting {
++  benchmark_id: "IC_tpu_uint8"
++  accelerator: "npu"
++  accelerator_desc: "npu"
++  configuration: "Samsung Exynos"
++  custom_setting {
++    id: "i_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Float32"
++  }
++  src: "/sdcard/MLPerf_sideload/ic_single.nnc"
++}
++
++benchmark_setting {
++  benchmark_id: "OD_uint8"
++  accelerator: "npu"
++  accelerator_desc: "npu"
++  configuration: "Samsung Exynos"
++  custom_setting {
++    id: "i_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Float32"
++  }
++  src: "/sdcard/MLPerf_sideload/od.nnc"
++}
++
++benchmark_setting {
++  benchmark_id: "IC_tpu_uint8_offline"
++  accelerator: "npu"
++  accelerator_desc: "npu"
++  configuration: "Samsung Exynos"
++  batch_size: 48
++  custom_setting {
++    id: "i_type"
++    value: "Uint8"
++  }
++  custom_setting {
++    id: "o_type"
++    value: "Float32"
++  }
++  src: "/sdcard/MLPerf_sideload/ic_offline.nnc"
++})SETTINGS";
++
++}	// namespace sbe
++#endif
+\ No newline at end of file
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_core.hpp b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_core.hpp
+new file mode 100644
+index 0000000..92ac93d
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_core.hpp
+@@ -0,0 +1,119 @@
++
++/* Copyright 2020-2022 Samsung Electronics Co. LTD  All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#ifndef SBE_CORE_H_
++#define SBE_CORE_H_
++
++/**
++ * @file sbe_core.hpp
++ * @brief main core object for samsung backend
++ * @date 2022-01-03
++ * @author soobong Huh (soobong.huh@samsung.com)
++ */
++
++#include "backend_c.h"
++#include "type.h"
++#include "sbe_loader.hpp"
++#include "sbe_helper.hpp"
++
++namespace sbe {
++class sbe_core_holder {
++	public:		
++		~sbe_core_holder() {
++			MLOGD("Destruct a sbe_core_holder object");
++		}
++
++		using backend_create_t = std::add_pointer<bool(const char *, mlperf_backend_configuration_t *, const char *)>::type;
++		using backend_get_input_count_t = std::add_pointer<int(void)>::type;
++		using backend_get_input_type_t = std::add_pointer<mlperf_data_t(int32_t)>::type;
++		using backend_set_input_t = std::add_pointer<mlperf_status_t(int32_t, int32_t, void*)>::type;
++		using backend_get_output_count_t = std::add_pointer<int32_t(void)>::type;
++		using backend_get_output_type_t = std::add_pointer<mlperf_data_t(int32_t)>::type;
++		using backend_get_output_t = std::add_pointer<mlperf_status_t(int32_t, int32_t, void**)>::type;
++		using backend_issue_query_t = std::add_pointer<mlperf_status_t(void)>::type;
++		using backend_convert_inputs_t = std::add_pointer<void(int, int, int, uint8_t*)>::type;
++		using backend_delete_t = std::add_pointer<void(void)>::type;
++		using backend_get_buffer_t = std::add_pointer<void*(size_t)>::type;
++		using backend_release_buffer_t = std::add_pointer<void(void*)>::type;
++
++		backend_create_t create_fp;
++		backend_delete_t delete_fp;
++		backend_issue_query_t issue_query_fp;
++		backend_get_input_count_t get_input_count_fp;
++		backend_get_input_type_t get_input_type_fp;
++		backend_set_input_t set_input_fp;
++		backend_get_output_count_t get_output_count_fp;
++		backend_get_output_type_t get_output_type_fp;
++		backend_get_output_t get_output_fp;
++		backend_convert_inputs_t convert_inputs_fp;
++		backend_get_buffer_t get_buffer_fp;
++		backend_release_buffer_t release_buffer_fp;
++
++		bool load_core_library(const char* lib_path)
++		{
++			char *error = nullptr;
++			/* load sbe core */
++			int core_id = core_ctrl::get_core_id();
++			MLOGD("acquired core id[%d]", core_id);
++
++			if(core_id == CORE_INVALID) {
++					MLOGD("fail to get sbe core libarary. core_id[%d]", core_id);
++					return false;
++			}
++
++			std::string core_lib_path = std::string(lib_path) + "/" + sbe_core_libs[core_id];
++			void *handle = dlopen(core_lib_path.c_str(), RTLD_NOW);
++			MLOGD("native library path[%s], handle[%p]", core_lib_path.c_str(), handle);
++			if(!handle) {
++				MLOGD("fail to get handle of shared library");
++				if ((error = dlerror()) != NULL) {
++					MLOGD("dlopen error with %s\n", error);
++				}
++				return false;
++			}
++
++			create_fp = link_symbol(handle, backend_create);
++			delete_fp = link_symbol(handle, backend_delete);
++			issue_query_fp = link_symbol(handle, backend_issue_query);
++			get_input_count_fp = link_symbol(handle, backend_get_input_count);
++			get_input_type_fp = link_symbol(handle, backend_get_input_type);
++			set_input_fp = link_symbol(handle, backend_set_input);
++			get_output_count_fp = link_symbol(handle, backend_get_output_count);
++			get_output_type_fp = link_symbol(handle, backend_get_output_type);
++			get_output_fp = link_symbol(handle, backend_get_output);
++			convert_inputs_fp = link_symbol(handle, backend_convert_inputs);
++			get_buffer_fp = link_symbol(handle, backend_get_buffer);
++			release_buffer_fp = link_symbol(handle, backend_release_buffer);
++			return true;
++		}
++
++		void unload_core_library()
++		{
++			/* TODO: to something */
++			MLOGD("unload native library");
++		}
++
++		sbe_core_holder():create_fp(nullptr), delete_fp(nullptr),
++			issue_query_fp(nullptr),  get_input_count_fp(nullptr),
++			get_input_type_fp(nullptr),  set_input_fp(nullptr),
++			get_output_count_fp(nullptr),  get_output_type_fp(nullptr),
++			get_output_fp(nullptr), convert_inputs_fp(nullptr),
++			get_buffer_fp(nullptr),  release_buffer_fp(nullptr)
++		{
++			MLOGD("Construct a sbe_core_holder object");
++		}
++};
++}	// namespace sbe
++#endif
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_helper.hpp b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_helper.hpp
+new file mode 100644
+index 0000000..c7bb471
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_helper.hpp
+@@ -0,0 +1,41 @@
++/* Copyright 2020-2022 Samsung Electronics Co. LTD  All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#ifndef SBE_HELPER_H_
++#define SBE_HELPER_H_
++
++/**
++ * @file sbe_helper.hpp
++ * @brief helper class of samsung backend core for samsung exynos
++ * @date 2022-01-04
++ * @author soobong Huh (soobong.huh@samsung.com)
++ */
++
++#include <stdint.h>
++#include <string>
++#include <unistd.h>
++#include <dlfcn.h>
++#include "sbe_utils.hpp"
++#include "sbe_config.hpp"
++
++namespace sbe {
++    class core_ctrl {
++        public:
++            static int support_sbe(const char *, const char *);
++            static const char* get_benchmark_config(int core_id);
++            static int get_core_id();
++    };
++}
++
++#endif
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_loader.hpp b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_loader.hpp
+new file mode 100644
+index 0000000..1180d5c
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_loader.hpp
+@@ -0,0 +1,49 @@
++/* Copyright 2020-2022 Samsung Electronics Co. LTD  All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#ifndef SBE_LOADER_H_
++#define SBE_LOADER_H_
++
++/**
++ * @file sbe_loader.hpp
++ * @brief dynamic loader for samsung exynos libraries
++ * @date 2022-01-04
++ * @author soobong Huh (soobong.huh@samsung.com)
++ */
++
++#include <dlfcn.h>
++#include "type.h"
++#include "sbe_utils.hpp"
++
++namespace sbe {
++std::string sbe_core_libs[CORE_MAX] = {
++  "libsbe1200_core.so", /* TODO it must be replaced to libsbe2100_core */
++  "libsbe1200_core.so",
++  "libsbe2200_core.so",
++};
++
++void* load_symbol(void* dl_handle, const char* name) {
++  auto func_pt = dlsym(dl_handle, name);
++  if(func_pt==nullptr) {
++    MLOGD("dlopen fail. symbol[%s]", name);
++  }
++  return func_pt;
++}
++
++#define link_symbol(dl_handle, symbol_name) \
++  reinterpret_cast<symbol_name##_t>(    \
++  load_symbol(dl_handle, #symbol_name))
++}
++
++#endif
+\ No newline at end of file
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_model_container.hpp b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_model_container.hpp
+new file mode 100644
+index 0000000..9f2f63f
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_model_container.hpp
+@@ -0,0 +1,394 @@
++#ifndef MODEL_CONTAINER_H_
++#define MODEL_CONTAINER_H_
++
++/**
++ * @file mnodel_container.hpp
++ * @brief model container for samsung specific model
++ * @date 2021-12-29
++ * @author soobong Huh (soobong.huh@samsung.com)
++ */
++
++#include "type.h"
++#include "sbe_utils.hpp"
++
++namespace sbe {
++	enum MODEL_IDX {
++		OBJECT_DETECTION = 0,
++		IMAGE_CLASSIFICATION,
++		IMAGE_SEGMENTATION,
++		MOBILE_BERT,
++		MAX_MODEL_IDX
++	};
++	
++	class model_container {
++		public:
++			int m_model_id;
++			int m_width;
++			int m_height;
++			int m_channel;
++
++			/* mdl config */
++			int m_in_cnt;
++			int m_out_cnt;
++			int m_inbuf_size;
++			int m_outbuf_size;
++
++			/* perf config */
++			int m_freeze;
++			bool b_enable_lazy;
++			bool b_enable_fpc;
++
++			mlperf_data_t::Type  m_inbuf_type;
++			mlperf_data_t::Type  m_outbuf_type;
++
++		private:
++			std::vector<mlperf_data_t> m_input_data;
++			std::vector<mlperf_data_t> m_output_data;
++
++		public:
++			void set_input_data(mlperf_data_t v)
++			{
++				m_input_data.push_back(v);
++			}
++
++			void set_output_data(mlperf_data_t v)
++			{
++				m_output_data.push_back(v);
++			}
++
++			int get_buf_size()
++			{
++				return m_width * m_height * m_channel;
++			}
++
++			int get_input_size() { return m_input_data.size(); }
++			int get_output_size() { return m_output_data.size(); }
++
++			mlperf_data_t get_input_type(int idx) { return m_input_data.at(idx); }
++			mlperf_data_t get_output_type(int idx) { return m_output_data.at(idx); }
++
++			void unset_lazy() { b_enable_lazy = false; }
++			virtual void init()=0;
++
++			void deinit() {
++				m_input_data.clear();
++				m_input_data.shrink_to_fit();
++
++				m_output_data.clear();
++				m_output_data.shrink_to_fit();
++			}
++
++			model_container(int w, int h, int c, int in, int out, int mdl_id) {
++				m_model_id = mdl_id;
++				m_width = w;
++				m_height = h;
++				m_channel = c;
++				m_in_cnt = in;
++				m_out_cnt = out;
++				m_freeze = 0;
++				b_enable_lazy = false;
++				b_enable_fpc = false;
++			}
++
++			~model_container() {
++				deinit();
++			}
++	};
++
++	class mdl_attribute_template {
++		public:
++			/* model attribute */
++			int m_width;
++			int m_height;
++			int m_channel;
++
++			int m_in_cnt;
++			int m_out_cnt;
++			int m_inbuf_size;
++			int m_outbuf_size;
++
++			mlperf_data_t::Type m_inbuf_type;
++			mlperf_data_t::Type m_outbuf_type;
++
++			/* others */
++			int m_preset_id;
++			bool b_enable_fpc;
++			int m_freeze;
++			bool b_enable_lazy;
++
++		public:
++			int get_byte(mlperf_data_t::Type type) {
++				switch (type) {
++					case mlperf_data_t::Uint8:
++						return 1;
++					case mlperf_data_t::Int8:
++						return 1;
++					case mlperf_data_t::Float16:
++						return 2;
++					case mlperf_data_t::Int32:
++					case mlperf_data_t::Float32:
++						return 4;
++					case mlperf_data_t::Int64:
++						return 8;
++				}
++			}
++
++			void update(model_container* ptr)
++			{
++				ptr->m_in_cnt = m_in_cnt;
++				ptr->m_out_cnt = m_out_cnt;
++
++				ptr->m_inbuf_size = m_inbuf_size;
++				ptr->m_outbuf_size = m_outbuf_size;
++				ptr->m_inbuf_type = m_inbuf_type;
++				ptr->m_outbuf_type = m_outbuf_type;
++				ptr->b_enable_fpc = b_enable_fpc;
++				ptr->m_freeze = m_freeze;
++				ptr->b_enable_lazy = b_enable_lazy;
++			}
++
++			void show() {
++				MLOGV("mdl_attribute_template : ");
++				MLOGV("m_preset_id : %d", m_preset_id);
++				MLOGV("m_width : %d", m_width);
++				MLOGV("m_height : %d", m_height);
++				MLOGV("m_channel : %d", m_channel);
++				MLOGV("m_in_cnt : %d", m_in_cnt);
++				MLOGV("m_out_cnt : %d", m_out_cnt);
++				MLOGV("m_inbuf_size : %d", m_inbuf_size);
++				MLOGV("m_outbuf_size : %d", m_outbuf_size);
++				MLOGV("m_inbuf_type : %d", m_inbuf_type);
++				MLOGV("m_outbuf_type : %d", m_outbuf_type);
++				MLOGV("b_enable_fpc : %d", b_enable_fpc);
++				MLOGV("m_freeze : %d", m_freeze);
++				MLOGV("b_lazy : %d", b_enable_lazy);
++			}
++
++		public:
++			mdl_attribute_template() {
++				m_width=0;
++				m_height=0;
++				m_channel=0;
++				m_in_cnt=1;
++				m_out_cnt=1;
++				m_inbuf_size=0;
++				m_outbuf_size=0;
++				m_inbuf_type=mlperf_data_t::Uint8;
++				m_outbuf_type=mlperf_data_t::Uint8;
++				m_preset_id=1001;
++				b_enable_fpc=false;
++				m_freeze=0;
++				b_enable_lazy = false;
++			}
++	};
++	mdl_attribute_template mdl_attr;
++
++	namespace sbeID2200 {
++		class classification : public model_container {
++			public :
++				void init() override {
++					MLOGV("on target model : classification");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({(m_inbuf_type), m_inbuf_size});
++
++					for(int i=0;i<m_out_cnt;i++)
++						set_output_data({m_outbuf_type, (int64_t)(m_outbuf_size / sizeof(float))});
++				}
++			public :
++				classification():model_container(224, 224, 3, 1, 1, IMAGE_CLASSIFICATION) {}
++		};
++
++		class classification_offline : public model_container {
++			public :
++				void init() override {
++					MLOGV("on target model : classification offline");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({m_inbuf_type, m_inbuf_size});
++
++					for(int i=0;i<m_out_cnt;i++)
++						set_output_data({m_outbuf_type, (int64_t)(m_outbuf_size / sizeof(float))});
++				}				
++			public :
++				classification_offline():model_container(224, 224, 3, 1, 1, IMAGE_CLASSIFICATION) {}
++		};
++
++		class mobilebert : public model_container {
++			public :				
++				void init() override {
++					MLOGV("on target model [mobile_bert]");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({m_inbuf_type, 384});
++
++					for(int i=0;i<m_out_cnt;i++)
++						set_output_data({m_outbuf_type, 384});
++				}
++			public :
++				mobilebert():model_container(384, 384, 3, 3, 2, MOBILE_BERT) {}
++		};
++
++		class segmentation : public model_container {
++			public :				
++				void init() override {
++					MLOGV("on target model : segemenatation");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({m_inbuf_type, m_inbuf_size});
++
++					for(int i=0;i<m_out_cnt;i++)
++						set_output_data({m_outbuf_type, m_outbuf_size});
++				}
++			public :
++				segmentation():model_container(512, 512, 3, 1, 1, IMAGE_SEGMENTATION) {}
++		};
++
++		class detection : public model_container {
++			public :				
++				void init() override {
++					MLOGV("on target model : detection");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({m_inbuf_type, m_inbuf_size});
++					
++					set_output_data({m_outbuf_type, m_outbuf_size/7});
++					set_output_data({m_outbuf_type, m_outbuf_size/28});
++					set_output_data({m_outbuf_type, m_outbuf_size/28});
++					set_output_data({m_outbuf_type, 1});
++				}
++			public :
++				int det_block_cnt;
++				int det_block_size;
++			public :
++				detection():model_container(320, 320, 3, 1, 1, OBJECT_DETECTION),
++										det_block_cnt(11), det_block_size(7) {}
++		};
++
++		detection obj_od;
++		classification obj_ic;
++		classification_offline obj_ic_offline;
++		segmentation obj_is;
++		mobilebert obj_bert;
++	}
++
++	namespace sbeID1200 {
++		class detection : public model_container {
++			public :
++				void init() override {
++					MLOGV("on target model : detection");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({m_inbuf_type, m_inbuf_size});
++					
++					set_output_data({m_outbuf_type, m_outbuf_size/7});
++					set_output_data({m_outbuf_type, m_outbuf_size/28});
++					set_output_data({m_outbuf_type, m_outbuf_size/28});
++					set_output_data({m_outbuf_type, 1});
++				}
++			public :
++				int det_block_cnt;
++				int det_block_size;
++			public :
++				detection():model_container(320, 320, 3, 1, 1, OBJECT_DETECTION),
++										det_block_cnt(11), det_block_size(7) {}
++		};
++
++		class classification : public model_container {
++			public :
++				void init() override {
++					MLOGV("on target model : classification");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({(m_inbuf_type), m_inbuf_size});
++
++					for(int i=0;i<m_out_cnt;i++)
++						set_output_data({m_outbuf_type, (int64_t)(m_outbuf_size / sizeof(float))});
++				}
++			public :
++				classification():model_container(224, 224, 3, 1, 1, IMAGE_CLASSIFICATION) {}
++		};
++
++		class segmentation : public model_container {
++			public :
++				void init() override {
++					MLOGV("on target model : segemenatation");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({m_inbuf_type, m_inbuf_size});
++
++					for(int i=0;i<m_out_cnt;i++)
++						set_output_data({m_outbuf_type, m_outbuf_size});
++				}
++			public :
++				segmentation():model_container(512, 512, 3, 1, 1, IMAGE_SEGMENTATION) {}
++		};
++
++		detection obj_od;
++		classification obj_ic;
++		segmentation obj_is;
++	}
++
++	namespace sbeID2100 {
++		class detection : public model_container {
++			public :
++				void init() override {
++					MLOGV("on target model : detection");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({m_inbuf_type, m_inbuf_size});
++					
++					set_output_data({m_outbuf_type, m_outbuf_size/7});
++					set_output_data({m_outbuf_type, m_outbuf_size/28});
++					set_output_data({m_outbuf_type, m_outbuf_size/28});
++					set_output_data({m_outbuf_type, 1});
++				}
++			public :
++				int det_block_cnt;
++				int det_block_size;
++			public :
++				detection():model_container(320, 320, 3, 1, 4, OBJECT_DETECTION),
++										det_block_cnt(11), det_block_size(7) {}
++		};
++
++		class classification : public model_container {
++			public :
++				void init() override {
++					MLOGV("on target model : classification");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({(m_inbuf_type), m_inbuf_size});
++
++					for(int i=0;i<m_out_cnt;i++)
++						set_output_data({m_outbuf_type, (int64_t)(m_outbuf_size / sizeof(float))});
++				}
++			public :
++				classification():model_container(224, 224, 3, 1, 1, IMAGE_CLASSIFICATION) {}
++		};
++
++		class segmentation : public model_container {
++			public :
++				void init() override {
++					MLOGV("on target model : segemenatation");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({m_inbuf_type, m_inbuf_size});
++
++					for(int i=0;i<m_out_cnt;i++)
++						set_output_data({m_outbuf_type, m_outbuf_size});
++				}
++			public :
++				segmentation():model_container(512, 512, 3, 1, 1, IMAGE_SEGMENTATION) {}
++		};
++
++		class mobilebert : public model_container {
++			public :
++				void init() override {
++					MLOGV("on target model [mobile_bert]");
++					for(int i=0;i<m_in_cnt;i++)
++						set_input_data({m_inbuf_type, 384});
++
++					for(int i=0;i<m_out_cnt;i++)
++						set_output_data({m_outbuf_type, 384});
++				}
++			public :
++				mobilebert():model_container(384, 384, 3, 3, 2, MOBILE_BERT) {}
++		};
++
++		detection obj_od;
++		classification obj_ic;
++		segmentation obj_is;
++		mobilebert obj_bert;
++	}
++}
++
++#endif
+\ No newline at end of file
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_utils.hpp b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_utils.hpp
+new file mode 100644
+index 0000000..1a7170e
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/include/sbe_utils.hpp
+@@ -0,0 +1,61 @@
++/* Copyright 2020-2022 Samsung Electronics Co. LTD  All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#ifndef SBE_UTILS_H_
++#define SBE_UTILS_H_
++
++/**
++ * @file sbe_utils.hpp
++ * @brief utility for samsung exynos backend
++ * @date 2022-01-04
++ * @author soobong Huh (soobong.huh@samsung.com)
++ */
++
++#include <android/log.h>
++
++namespace sbe {
++  enum DEVICE_ID {
++    CORE_INVALID=-1,
++    CORE_2100=0,
++    CORE_1200,
++    CORE_2200,
++    CORE_MAX
++	};
++
++  #ifndef LOG_TAG
++  #define LOG_TAG "sbe"
++  #endif
++
++  #define LOG_ENABLE
++  #undef LOG_ENABLE
++
++  #define __SHARP_X(x) #x
++  #define __STR(x) __SHARP_X(x)
++  #define _MLOG(_loglevel, fmt, ...)                                          \
++    __android_log_print(_loglevel, "MLPerf",                                  \
++                        "[Backend][" LOG_TAG "] %s:" __STR(__LINE__) ": " fmt \
++                                                                    "\n",    \
++                        __FUNCTION__, ##__VA_ARGS__)
++
++  #ifdef LOG_ENABLE
++  #define MLOGV(fmt, ...) _MLOG(ANDROID_LOG_VERBOSE, fmt, ##__VA_ARGS__)
++  #define MLOGD(fmt, ...) _MLOG(ANDROID_LOG_DEBUG, fmt, ##__VA_ARGS__)
++  #define MLOGE(fmt, ...) _MLOG(ANDROID_LOG_ERROR, fmt, ##__VA_ARGS__)
++  #else
++  #define MLOGV(fmt, ...) _MLOG(ANDROID_LOG_VERBOSE, fmt, ##__VA_ARGS__)
++  #define MLOGD(fmt, ...)
++  #define MLOGE(fmt, ...)
++  #endif
++}	// namespace sbe
++#endif
+\ No newline at end of file
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/include/type.h b/mobile_back_samsung/cpp/sbe_backend/jni/include/type.h
+new file mode 100755
+index 0000000..5b45d9f
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/include/type.h
+@@ -0,0 +1,65 @@
++/* Copyright 2020 The MLPerf Authors. All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#ifndef MLPERF_C_TYPE_H_
++#define MLPERF_C_TYPE_H_
++
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif  // __cplusplus
++
++typedef void* mlperf_backend_ptr_t;
++
++typedef enum {
++  MLPERF_SUCCESS = 0,
++  MLPERF_FAILURE = 1,
++} mlperf_status_t;
++
++// Requirements of the data for a specific input. It contains the type and size
++// of that input.
++typedef struct {
++  enum Type {
++    Float32 = 0,
++    Uint8 = 1,
++    Int8 = 2,
++    Float16 = 3,
++    Int32 = 4,
++    Int64 = 5,
++  };
++
++  enum Type type;
++  int64_t size;
++} mlperf_data_t;
++
++const int kMaxMLPerfBackendConfigs = 256;
++typedef struct {
++  const char* accelerator;
++  uint32_t batch_size;
++  int count = 0;
++  const char* keys[kMaxMLPerfBackendConfigs];
++  const char* values[kMaxMLPerfBackendConfigs];
++} mlperf_backend_configuration_t;
++
++typedef struct {
++  const char* model;
++  const char* manufacturer;
++} mlperf_device_info_t;
++
++#ifdef __cplusplus
++}
++#endif  // __cplusplus
++
++#endif  // MLPERF_C_TYPE_H_
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/sbe/sbe_core.cc b/mobile_back_samsung/cpp/sbe_backend/jni/sbe/sbe_core.cc
+new file mode 100644
+index 0000000..07bb38e
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/sbe/sbe_core.cc
+@@ -0,0 +1,172 @@
++/* Copyright 2020 The MLPerf Authors. All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#include <android/log.h>
++#include <atomic>
++#include <condition_variable>
++#include <cstdio>
++#include <iostream>
++#include <memory>
++#include <mutex>
++#include <stdexcept>
++#include <string>
++#include <array>
++#include <thread>
++
++#include "sbe_core.hpp"
++#include "sbe_utils.hpp"
++
++using namespace sbe;
++
++static sbe_core_holder *sbe_core = nullptr;
++
++bool mlperf_backend_matches_hardware(const char** not_allowed_message, const char ** settings,
++                                     const mlperf_device_info_t* device_info)
++{
++    MLOGD("Check a support manufacturer: %s  model: %s", device_info->manufacturer,  device_info->model);
++    MLOGD("+ mlperf_backend_matches_hardware");
++
++    *not_allowed_message = nullptr;
++
++    int support = core_ctrl::support_sbe(device_info->manufacturer, device_info->model);
++    if(support != CORE_INVALID && support != CORE_2100) {
++        MLOGD("backend core selected [%d]", support);
++        *settings = core_ctrl::get_benchmark_config(support);
++        return true;
++    }
++
++    MLOGD("Soc Not supported. Trying next backend");
++	*not_allowed_message = "UnsupportedSoc";
++    return false;
++}
++
++const char* mlperf_backend_vendor_name(mlperf_backend_ptr_t backend_ptr)
++{
++    static const char name[] = "samsung";
++    return name;
++}
++
++const char* mlperf_backend_name(mlperf_backend_ptr_t backend_ptr)
++{
++    static const char name[] = "samsung";
++    return name;
++}
++
++mlperf_status_t mlperf_backend_flush_queries(mlperf_backend_ptr_t backend_ptr)
++{
++   return MLPERF_SUCCESS;
++}
++
++mlperf_backend_ptr_t mlperf_backend_create(
++    const char* model_path, mlperf_backend_configuration_t* configs,
++    const char* native_lib_path) {
++    MLOGD("mlperf_backend_create", "mlperf_backend_create");
++
++    if(sbe_core) {
++        MLOGD("sbe object exist.");
++        sbe_core->unload_core_library();
++    }
++
++    MLOGD("ready to load sbe library");
++    sbe_core = new sbe_core_holder();
++    bool ret = sbe_core->load_core_library(native_lib_path);
++    if(ret == false)
++        return nullptr;
++    sbe_core->create_fp(model_path, configs, native_lib_path);
++    MLOGD("ptr of sbe_core[%p]", sbe_core);
++    return (mlperf_backend_ptr_t)sbe_core;
++}
++
++int32_t mlperf_backend_get_input_count(mlperf_backend_ptr_t backend_ptr)
++{    
++    sbe_core_holder* ptr = (sbe_core_holder *)backend_ptr;
++    MLOGD("+ mlperf_backend_get_input_count with ptr[%x]", ptr);
++    return ptr->get_input_count_fp();
++}
++
++mlperf_data_t mlperf_backend_get_input_type(mlperf_backend_ptr_t backend_ptr, int32_t i)
++{
++    sbe_core_holder* ptr = (sbe_core_holder *)backend_ptr;
++    MLOGD("+ mlperf_backend_get_input_type with ptr[%p]", ptr);
++    return ptr->get_input_type_fp(i);
++}
++
++mlperf_status_t mlperf_backend_set_input(mlperf_backend_ptr_t backend_ptr,
++                                         int32_t batchIndex, int32_t i,
++                                         void* data)
++{
++    sbe_core_holder* ptr = (sbe_core_holder *)backend_ptr;
++    MLOGD("+ mlperf_backend_set_input with ptr[%p]", ptr);
++    return ptr->set_input_fp(batchIndex, i, data);
++}
++
++int32_t mlperf_backend_get_output_count(mlperf_backend_ptr_t backend_ptr)
++{
++    sbe_core_holder* ptr = (sbe_core_holder *)backend_ptr;
++    MLOGD("+ mlperf_backend_get_output_count with ptr[%p]", ptr);
++    return ptr->get_output_count_fp();
++}
++
++mlperf_data_t mlperf_backend_get_output_type(mlperf_backend_ptr_t backend_ptr, int32_t i)
++{
++    sbe_core_holder* ptr = (sbe_core_holder *)backend_ptr;
++    MLOGD("+ mlperf_backend_get_output_type with ptr[%p]", ptr);
++    return ptr->get_output_type_fp(i);
++}
++
++mlperf_status_t mlperf_backend_issue_query(mlperf_backend_ptr_t backend_ptr)
++{
++    sbe_core_holder* ptr = (sbe_core_holder *)backend_ptr;
++    MLOGD("+ mlperf_backend_issue_query with ptr[%p]", ptr);
++    return ptr->issue_query_fp();
++}
++
++mlperf_status_t mlperf_backend_get_output(mlperf_backend_ptr_t backend_ptr,
++                                          uint32_t batchIndex, int32_t i,
++                                          void** data)
++{
++    sbe_core_holder* ptr = (sbe_core_holder *)backend_ptr;
++    MLOGD("+ mlperf_backend_get_output with ptr[%p]", ptr);
++    return ptr->get_output_fp(batchIndex, i, data);
++}
++
++void mlperf_backend_convert_inputs(void* backend_ptr,
++                            int bytes, int width, int height, uint8_t* data)
++{
++    sbe_core_holder* ptr = (sbe_core_holder *)backend_ptr;
++    MLOGD("+ mlperf_backend_convert_inputs with ptr[%p]", ptr);
++    ptr->convert_inputs_fp(bytes, width, height, data);
++}
++
++void mlperf_backend_delete(mlperf_backend_ptr_t backend_ptr)
++{
++    sbe_core_holder* ptr = (sbe_core_holder *)backend_ptr;
++    MLOGD("+ mlperf_backend_delete with ptr[%p]", ptr);
++    ptr->delete_fp();
++
++    delete(ptr);
++    ptr = nullptr;
++}
++
++void *mlperf_backend_get_buffer(size_t size)
++{
++    MLOGD("+ mlperf_backend_get_buffer with size[%d]", size);
++    return sbe_core->get_buffer_fp(size);
++}
++
++void mlperf_backend_release_buffer(void *p)
++{
++    MLOGD("+ mlperf_backend_release_buffer with ptr[%p]", p);
++    sbe_core->release_buffer_fp(p);
++}
+\ No newline at end of file
+diff --git a/mobile_back_samsung/cpp/sbe_backend/jni/sbe/sbe_helper.cc b/mobile_back_samsung/cpp/sbe_backend/jni/sbe/sbe_helper.cc
+new file mode 100644
+index 0000000..cb8653f
+--- /dev/null
++++ b/mobile_back_samsung/cpp/sbe_backend/jni/sbe/sbe_helper.cc
+@@ -0,0 +1,109 @@
++/* Copyright 2020-2022 Samsung Electronics Co. LTD  All Rights Reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++==============================================================================*/
++#include <string.h>
++#include <array>
++#include "sbe_helper.hpp"
++
++namespace sbe {
++    static std::string get_core_info()
++    {
++        std::array<char, 128> buffer;
++        std::string core_info;
++
++        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen("getprop | grep ro.hardware", "r"), pclose);
++        if (!pipe) {
++            __android_log_print(ANDROID_LOG_INFO, "TAG", "Can not find Samsung specific information");
++            return "";
++        }
++        while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
++            core_info += buffer.data();
++        }
++        MLOGD("completed hardware info [%s]", core_info.c_str());
++        return core_info;
++    }
++
++    static bool get_manufacturer(const char* manufacturer)
++    {
++        MLOGD("Check for support  manufacturer[%s]", manufacturer);
++        if(strstr ((char *)manufacturer,"samsung") ||
++            strstr ((char *)manufacturer,"Samsung"))    return true;
++        return false;
++    }
++
++    static int get_core_id_from_model(const char* model)
++    {
++        MLOGD("Check for support model[%s]", model);
++        int core_id = CORE_INVALID;
++
++        if(strstr ((char *)model,"G998")            ||
++            strstr ((char *)model,"G996")           ||
++            strstr ((char *)model,"G991")           ||
++            strstr ((char *)model,"UNIVERSAL2100")) core_id = CORE_2100;
++        else if(strstr ((char *)model,"ERD9925")    ||
++                strstr ((char *)model,"S5E9925")    ||
++                strstr ((char *)model,"S906"))      core_id = CORE_2200;
++        else if(strstr ((char *)model,"ERD8825"))   core_id = CORE_1200;
++        else return CORE_INVALID;
++        return core_id;
++    }
++
++    static int get_core_id_from_hardware(const char* hardware)
++    {
++        MLOGD("Check for support hardware[%s]", hardware);
++        int core_id = CORE_INVALID;
++
++        if(strstr ((char *)hardware,"2100"))          core_id = CORE_INVALID;
++        else if(strstr ((char *)hardware,"9925"))      core_id = CORE_2200;
++        else if(strstr ((char *)hardware,"8825"))      core_id = CORE_1200;
++        else return CORE_INVALID;
++        return core_id;
++    }
++
++    int core_ctrl::support_sbe(const char* manufacturer, const char* model)
++    {
++        bool is_samsung = get_manufacturer(manufacturer);
++        int core_id = get_core_id_from_model(model);
++        if(is_samsung && (core_id > CORE_INVALID)) {
++            return core_id;
++        }
++        return CORE_INVALID;
++    }
++
++    const char* core_ctrl::get_benchmark_config(int core_id)
++    {
++        const char *settings = nullptr;;
++        if(core_id == CORE_2100) {
++            MLOGE("Not supported");
++            return settings;
++        }
++        else if(core_id == CORE_1200) {
++            settings = sbe1200_config.c_str();
++        }
++        else if(core_id == CORE_2200) {
++            settings = sbe2200_config.c_str();
++        }
++        return settings;
++    }
++
++    // called mlperf_create
++    int core_ctrl::get_core_id()
++    {
++        std::string temp = get_core_info();
++        const char *core_model = temp.c_str();
++        MLOGD("check system info. core[%s]", core_model);
++        if(!core_model) return CORE_INVALID;
++        return get_core_id_from_hardware(core_model);
++    }
++}
+\ No newline at end of file

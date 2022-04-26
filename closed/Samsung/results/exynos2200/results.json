@@ -1,0 +1,170 @@
+[
+    {
+        "benchmark_id": "IC_tpu_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "2058.0452",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "59770.164",
+        "min_samples": "1024",
+        "num_samples": "124770",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-02-25T01:58:07.905"
+    },
+    {
+        "benchmark_id": "OD_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "933.8638",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "59917.97",
+        "min_samples": "1024",
+        "num_samples": "57029",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-02-25T01:58:07.906"
+    },
+    {
+        "benchmark_id": "SM_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "540.3011",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "59913.1",
+        "min_samples": "1024",
+        "num_samples": "32777",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-02-25T01:58:07.906"
+    },
+    {
+        "benchmark_id": "LU_gpu_float32",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "19.870346",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "60067.41",
+        "min_samples": "1024",
+        "num_samples": "1224",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-02-25T01:58:07.906"
+    },
+    {
+        "benchmark_id": "IC_tpu_uint8_offline",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "3069.8315",
+        "accuracy": "N\/A",
+        "min_duration": "0.0",
+        "duration": "8005.651",
+        "min_samples": "24576",
+        "num_samples": "24576",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-02-25T01:58:07.906"
+    },
+    {
+        "benchmark_id": "IS_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "406.05923",
+        "accuracy": "N\/A",
+        "min_duration": "60000.0",
+        "duration": "59934.777",
+        "min_samples": "1024",
+        "num_samples": "24588",
+        "mode": "performance_lite_mode",
+        "datetime": "2022-02-25T01:58:07.906"
+    },
+    {
+        "benchmark_id": "IC_tpu_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "75.92%",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-02-25T01:58:07.907"
+    },
+    {
+        "benchmark_id": "OD_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "0.2785 mAP",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-02-25T01:58:07.907"
+    },
+    {
+        "benchmark_id": "SM_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "0.5755 mIoU",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-02-25T01:58:07.907"
+    },
+    {
+        "benchmark_id": "LU_gpu_float32",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "93.9833",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-02-25T01:58:07.907"
+    },
+    {
+        "benchmark_id": "IC_tpu_uint8_offline",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "0.0",
+        "accuracy": "75.92%",
+        "min_duration": "0.0",
+        "duration": "0.0",
+        "min_samples": "24576",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-02-25T01:58:07.907"
+    },
+    {
+        "benchmark_id": "IS_uint8",
+        "configuration": {
+            "runtime": ""
+        },
+        "score": "Infinity",
+        "accuracy": "0.5344 mIoU",
+        "min_duration": "60000.0",
+        "duration": "0.0",
+        "min_samples": "1024",
+        "num_samples": "0",
+        "mode": "accuracy_mode",
+        "datetime": "2022-02-25T01:58:07.907"
+    }
+]
